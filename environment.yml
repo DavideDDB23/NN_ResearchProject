@@ -1,0 +1,21 @@
+name: eesavings
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - torch
+      - torchvision
+      - numpy
+      - scipy
+      - pandas
+      - matplotlib
+      - tqdm
+      - pyyaml
+      - pytest
+      - gdown
+      - ipykernel
+      - hydra-core>=1.3
+      - omegaconf
+      - -e .

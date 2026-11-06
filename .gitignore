@@ -1,0 +1,24 @@
+# data, results and external code stay out of git
+# (the leading / means only the folders in the repository root, not src/eesavings/data/)
+/data/
+/outputs/
+/third_party/
+/checkpoints/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# large arrays and models
+*.p
+*.pkl
+*.npy
+*.npz
+*.pt
+*.pth
+
+# os
+.DS_Store

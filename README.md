@@ -8,7 +8,9 @@ and how much of those savings an adaptation phase of the exit heads can recover,
 The full plan is in the project document "Compute savings degli early exit sotto shift"
 (https://claude.ai/artifact/MNreFiy1XTNWcYZcUC8axi).
 
-This first part sets up the code and reproduces Fast yet Safe on its released ImageNet logits.
+Block 1 sets up the code and reproduces Fast yet Safe on its released ImageNet logits.
+Block 2 trains a multi exit ResNet20 on CIFAR10 and CIFAR100 with four training regimes and saves
+its outputs on the clean test set and on CIFAR-10-C / CIFAR-100-C, for the analysis of the savings under shift.
 
 ## Setup
 
@@ -33,10 +35,17 @@ git -C third_party/ConfidenceBranchNetwok checkout 405d273
 - `src/eesavings/risk/`: exit rule, losses, bounds and threshold calibration, copied from Fast yet Safe with the same function names,
   plus our `rc_main_fast` (same results as `rc_main`, but faster), which the script uses.
 - `src/eesavings/fys.py`: losses and exits for every threshold of the grid, from the logits of all exits.
-- `src/eesavings/savings.py`: compute savings and their decomposition over the exits.
+- `src/eesavings/savings.py`: compute savings and their decomposition over the exits, and the cost of every exit of our ResNet20.
+- `src/eesavings/models.py`: multi exit ResNet20 (9 exits), pooled heads with a confidence unit, MAC counting.
+- `src/eesavings/data/cifar.py`: CIFAR10/100, CIFAR-C, train/val split.
+- `src/eesavings/train.py`: losses, training phases and regimes.
+- `src/eesavings/export.py`: outputs of a trained network on a set of images, fitting of the confidence units.
 - `scripts/download_fys_logits.sh`: downloads the logits released with Fast yet Safe (ImageNet about 3.4 GB, CIFAR100 about 60 MB).
 - `scripts/reproduce_fys.py`: reproduces their image classification experiment.
-- `tests/`: unit tests, plus a test that compares our code with the original on the same data.
+- `scripts/download_cifar_c.sh`, `train_multiexit.py`, `run_trainings.py`, `export_outputs.py`, `export_all.sh`,
+  `first_look.py` and `notebooks/colab_training.ipynb`: block 2 (see below).
+- `tests/`: unit tests, plus tests that compare our code with the original code of Fast yet Safe and of Pomponi et al.
+  Tests that need data (CIFAR, CIFAR-C, exported outputs) are skipped when the data is missing: `pytest -rs` lists them.
 
 ## Reproducing Fast yet Safe
 
@@ -113,3 +122,93 @@ Time of one training epoch (batch 64, including the evaluation at the end of tra
 With the 50 epochs of their configuration this is about 36 minutes for joint and about 5 hours for
 bernulli on the Mac. The final evaluation of their script is also slow (about 14 minutes), because it
 runs the network again for every threshold.
+
+## Block 2: multi exit ResNet20 on CIFAR
+
+### Model
+
+- **Backbone.** The CIFAR ResNet20 of He et al. 2016 with option A shortcuts, copied from Pomponi et al. 2022
+  (`models/resnet.py`, commit 405d273). A test checks that both give the same block outputs.
+- **Exits.** Nine, one after each residual block.
+  - Exits 1 to 8 use the "pooled head" of Kubaty et al. 2025 (SDN pooling): α·maxpool + (1 − α)·avgpool down to 4x4,
+    with α learnable, then one linear layer. Each head also has a confidence unit, a linear output with a sigmoid
+    on the same features.
+  - Exit 9 is the usual global average pooling and linear layer, so the backbone alone is a standard ResNet20.
+- **Why not the heads of Pomponi et al.** Their branches have a 128 channel convolution: one early head costs about
+  41% of the backbone, and the network with all heads costs 3.3 times the ResNet20.
+- **Costs** (`models.exit_costs`, counted with `FlopCounterMode`, convolutions and linear layers only).
+  - An input that leaves at exit l pays blocks 1..l and heads 1..l. An input that reaches exit 9 also pays all heads.
+  - Savings are measured against the plain ResNet20 (40.55 M MAC plus the final layer), so they can be negative.
+  - The heads cost 0.12% of the network on CIFAR10 and 1.09% on CIFAR100.
+
+### Training regimes
+
+The regimes follow Kubaty et al. 2025, built from three phases:
+
+| Phase | What trains | Loss |
+|---|---|---|
+| 1, backbone | backbone and exit 9 | cross entropy of exit 9 |
+| 2, all | whole network | mean of the cross entropies of the 9 exits |
+| 3, heads | exits 1 to 8 only; backbone frozen, BatchNorm statistics included | mean of the cross entropies of exits 1 to 8 |
+
+- **joint** = phase 2.
+- **disjoint** = phase 1, then phase 3.
+- **mixed** = phase 1, then phase 2.
+- **joint_sd** = phase 2 with self distillation from exit 9: for exits 1 to 8,
+  (1 − α)·CE + α·τ²·KL(teacher ‖ exit), with α = 0.5, τ = 3, and the teacher detached.
+- **Budget.** Every regime gets the same total budget, as in Kubaty's `scripts/regimes_resnet.py`: 160 epochs per phase,
+  320 for joint and joint_sd. Phase 1 is shared by disjoint and mixed of the same seed.
+- **Recipe of He et al. 2016 in every phase:**
+  - SGD, lr 0.1, momentum 0.9, weight decay 1e-4, batch 128;
+  - lr divided by 10 at 50% and 75% of the phase;
+  - random crop with 4 pixels of padding and horizontal flip.
+
+  We keep the model of the last epoch.
+- **Seeds 0, 1, 2.** They change the initialization and the batches; the splits are fixed.
+
+### Data
+
+- **Training images.** 45,000 for training and 5,000 for val, fixed split (`data/cifar.py`). The val set is never used
+  to train the network: it is used for the confidence units and, later, for temperature scaling.
+- **Test set.** All 10,000 images are kept; the calibration / evaluation split is chosen at analysis time.
+- **CIFAR-10-C and CIFAR-100-C** (Hendrycks and Dietterich 2019; Zenodo records 2535967 and 3555552): 19 corruptions,
+  15 standard and 4 extra, each at 5 severities. Row (s − 1)·10000 + i of a file is test image i at severity s.
+  The tests check this order for every corruption by comparing images, because the labels file is shared.
+
+### Confidence units
+
+- One logistic regression per exit on the head features, fitted on the val set with the network frozen.
+  The L2 strength is chosen by 5-fold cross validation.
+- **Target "label"** (is the exit correct): fitted at export time. It is a post hoc approximation of the learned
+  confidence of Pomponi et al. 2022, not a reproduction: they train it together with the network, with a class
+  balanced loss.
+- **Why not class balanced.** We use the plain loss because Fast yet Safe uses one threshold for all exits, and class
+  balancing would shift the score of each exit by a different amount.
+- **Target "agreement"** (does the exit agree with exit 9) uses the same function, in the week 4 analysis.
+
+### How to run
+
+```bash
+bash scripts/download_cifar_c.sh                 # CIFAR-10-C and CIFAR-100-C, about 5.8 GB, md5 checked
+# training: on Colab with notebooks/colab_training.ipynb (networks saved on Drive), or locally:
+python scripts/run_trainings.py --seeds 0 --jobs 1
+# copy the folder outputs/cifar from Drive into outputs/cifar, then on the Mac:
+caffeinate -i bash scripts/export_all.sh         # val, test and CIFAR-C outputs of every network
+python scripts/first_look.py                     # accuracy per exit and a first check with Fast yet Safe
+pytest -rs
+```
+
+- **Training outputs:**
+  - each network goes in `outputs/cifar/<dataset>/<regime>/seed<k>/`, with `model.pt`, `args.json` and `log.csv`
+    (loss and val accuracy of every exit at each epoch);
+  - phase 1 goes in `outputs/cifar/<dataset>/backbone/seed<k>/`.
+- **Export outputs** (`preds/`, numpy arrays that can be opened with `mmap_mode="r"`):
+  - logits (N, 9, C), confidences (N, 9) and labels for val and test;
+  - head features (N, 4352, float16) for val and test;
+  - per corruption, logits (5, 10000, 9, C) and confidences;
+  - CIFAR-C features only for seed 0, because they take about 8.3 GB per network;
+  - also `conf_label.pt` and `metrics.json`, with the accuracy of every exit, clean and per corruption and severity.
+- **Timing.** On the Mac (Apple M5, MPS) one epoch takes about 18 s, mostly GPU time: about 14 s for a training step
+  without data loading. Two trainings at the same time do not go faster, so the full block (about 6,000 epochs) runs
+  on Colab.
+- **Reproducibility.** Results on MPS and CUDA are not reproducible bit by bit.

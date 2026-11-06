@@ -14,6 +14,7 @@ dependencies:
       - tqdm
       - pyyaml
       - pytest
+      - scikit-learn>=1.8
       - gdown
       - ipykernel
       - hydra-core>=1.3

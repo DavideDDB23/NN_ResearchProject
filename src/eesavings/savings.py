@@ -6,14 +6,25 @@
 import numpy as np
 
 # Cumulative MACs (millions) of a CIFAR ResNet20 after each of its 9 blocks, heads excluded.
-# Computed by hand from the architecture; to check with a FLOP counter on the real model.
+# Computed by hand from the architecture, confirmed by the FLOP counter in tests/test_models.py.
 RESNET20_CIFAR_CUM_MMACS = np.array([5.16, 9.88, 14.60, 18.14, 22.86, 27.57, 31.11, 35.83, 40.55])
 
+# Cost (MACs) of each exit of our multi exit ResNet20 (eesavings/models.py): blocks 1..l and pooled heads 1..l,
+# exit 9 also pays the final layer. RESNET20_FULL_MACS is the plain ResNet20 without intermediate heads,
+# the reference of the savings. Counted with models.exit_costs (checked in tests/test_models.py).
+RESNET20_EXIT_MACS = {
+    "cifar10": np.array([5163776, 9885184, 14606592, 18151168, 22875392, 27599616, 31149824, 35879680, 40598912]),
+    "cifar100": np.array([5186816, 9931264, 14675712, 18266368, 23036672, 27806976, 31449344, 36271360, 40996352]),
+}
+RESNET20_FULL_MACS = {"cifar10": 40551040, "cifar100": 40556800}
 
-def cost_fractions(cum_costs):
-    # cost of each exit as a fraction of the full network
+
+def cost_fractions(cum_costs, full_cost=None):
+    # cost of each exit as a fraction of the full network (by default the cost of the last exit)
     cum_costs = np.asarray(cum_costs, dtype=float)
-    return cum_costs / cum_costs[-1]
+    if full_cost is None:
+        full_cost = cum_costs[-1]
+    return cum_costs / full_cost
 
 
 def uniform_cost_fractions(n_exits):

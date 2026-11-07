@@ -18,13 +18,14 @@ import os
 import numpy as np
 import torch
 
-from eesavings.data.cifar import ALL_CORRUPTIONS, NUM_CLASSES, cifar_arrays, load_cifar_c
+from eesavings.data.cifar import ALL_CORRUPTIONS, N_TEST, NUM_CLASSES, SEVERITIES, cifar_arrays, load_cifar_c
 from eesavings.export import confidence_targets, fit_confidence, predict, set_confidence
-from eesavings.models import MultiExitResNet20, exit_costs
+from eesavings.models import N_EXITS, MultiExitResNet20, exit_costs
 from eesavings.train import load_model
 
 
-def accuracy_per_exit(logits, labels):
+def accuracy_from_logits(logits, labels):
+    # accuracy of every exit, from saved logits (..., 9, C) and labels (...)
     return (logits.argmax(axis=-1) == labels[..., None]).mean(axis=-2).round(4).tolist()
 
 
@@ -59,7 +60,7 @@ def main():
         np.save(os.path.join(out, f"{split}_conf.npy"), conf)
         np.save(os.path.join(out, f"{split}_features.npy"), features.astype(np.float16))
         np.save(os.path.join(out, f"{split}_labels.npy"), labels)
-        metrics[split] = accuracy_per_exit(logits, labels)
+        metrics[split] = accuracy_from_logits(logits, labels)
         if split == "val":
             metrics["val_mean_conf"] = conf.mean(axis=0).round(4).tolist()
         print(split, "accuracy per exit", metrics[split], flush=True)
@@ -70,13 +71,14 @@ def main():
         images, labels = load_cifar_c(dataset, corruption, args.data_dir)
         flat = images.reshape(-1, 32, 32, 3)
         result = predict(model, flat, dataset, args.device, return_features=args.features)
-        logits = result[0].reshape(5, 10000, 9, -1)
+        shape = (len(SEVERITIES), N_TEST)
+        logits = result[0].reshape(*shape, N_EXITS, -1)
         np.save(os.path.join(out, "cifar_c", f"{corruption}_logits.npy"), logits)
-        np.save(os.path.join(out, "cifar_c", f"{corruption}_conf.npy"), result[1].reshape(5, 10000, 9))
+        np.save(os.path.join(out, "cifar_c", f"{corruption}_conf.npy"), result[1].reshape(*shape, N_EXITS))
         if args.features:
             np.save(os.path.join(out, "cifar_c", f"{corruption}_features.npy"),
-                    result[2].astype(np.float16).reshape(5, 10000, -1))
-        metrics["cifar_c"][corruption] = accuracy_per_exit(logits, np.tile(labels, (5, 1)))
+                    result[2].astype(np.float16).reshape(*shape, -1))
+        metrics["cifar_c"][corruption] = accuracy_from_logits(logits, np.tile(labels, (len(SEVERITIES), 1)))
         print(corruption, "final exit accuracy by severity", [a[-1] for a in metrics["cifar_c"][corruption]],
               flush=True)
     np.save(os.path.join(out, "cifar_c", "labels.npy"), labels)

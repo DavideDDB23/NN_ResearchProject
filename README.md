@@ -105,7 +105,7 @@ CRC uses the risk budget almost fully (test risk close to eps) and saves 4 to 15
 which pays for its high probability guarantee. These are the in-distribution savings that the next part
 of the project measures again under shift.
 
-## Notes on the Pomponi et al. code (for the next part)
+## Notes on the Pomponi et al. code (checked before block 2)
 
 We ran one epoch of ResNet20 with its 10 branches on CIFAR10, on the Mac (Apple M5, MPS), outside this
 repository. The original code needs two small fixes to start: `utils.py` imports `models/vgg.py`, which is
@@ -133,13 +133,21 @@ runs the network again for every threshold.
   - Exits 1 to 8 use the "pooled head" of Kubaty et al. 2025 (SDN pooling): α·maxpool + (1 − α)·avgpool down to 4x4,
     with α learnable, then one linear layer. Each head also has a confidence unit, a linear output with a sigmoid
     on the same features.
+  - **Pooling.** We use fixed pooling kernels (8, 4, 2) instead of Kubaty's adaptive pooling; the result is the same
+    for 32, 16 and 8 pixels.
+  - **α is not constrained**, as in SDN and Kubaty. After training, 46 of the 192 heads have α < 0, so the head
+    computes something like 2.5·avg − 1.5·max. Where the seeds of the same regime and exit differ in the sign of α
+    (22 cases), the negative ones are less accurate in 21, by 2.6 points on average. This is the main source of the
+    seed-to-seed variance at the early exits.
+  - **Fixed after training.** α is kept fixed from then on: the cached features are the 4x4 maps already mixed with α,
+    so a later adaptation can retrain the linear layer and the confidence unit, not α.
   - Exit 9 is the usual global average pooling and linear layer, so the backbone alone is a standard ResNet20.
 - **Why not the heads of Pomponi et al.** Their branches have a 128 channel convolution: one early head costs about
   41% of the backbone, and the network with all heads costs 3.3 times the ResNet20.
 - **Costs** (`models.exit_costs`, counted with `FlopCounterMode`, convolutions and linear layers only).
   - An input that leaves at exit l pays blocks 1..l and heads 1..l. An input that reaches exit 9 also pays all heads.
   - Savings are measured against the plain ResNet20 (40.55 M MAC plus the final layer), so they can be negative.
-  - The heads cost 0.12% of the network on CIFAR10 and 1.09% on CIFAR100.
+  - The heads cost 0.12% of the network on CIFAR10 and 1.08% on CIFAR100.
 
 ### Training regimes
 
@@ -155,7 +163,9 @@ The regimes follow Kubaty et al. 2025, built from three phases:
 - **disjoint** = phase 1, then phase 3.
 - **mixed** = phase 1, then phase 2.
 - **joint_sd** = phase 2 with self distillation from exit 9: for exits 1 to 8,
-  (1 − α)·CE + α·τ²·KL(teacher ‖ exit), with α = 0.5, τ = 3, and the teacher detached.
+  (1 − α)·CE + α·τ²·KL(teacher ‖ exit), with α = 0.5, τ = 3, and the teacher detached. This regime is our addition:
+  it is not in Kubaty et al. The loss follows Zhang et al. 2019 (T = 3) and the τ² factor of Hinton et al. 2015 and
+  Phuong and Lampert 2019.
 - **Budget.** Every regime gets the same total budget, as in Kubaty's `scripts/regimes_resnet.py`: 160 epochs per phase,
   320 for joint and joint_sd. Phase 1 is shared by disjoint and mixed of the same seed.
 - **Recipe of He et al. 2016 in every phase:**
@@ -165,6 +175,11 @@ The regimes follow Kubaty et al. 2025, built from three phases:
 
   We keep the model of the last epoch.
 - **Seeds 0, 1, 2.** They change the initialization and the batches; the splits are fixed.
+- **Differences from Kubaty et al.** They use AdamW (Adam with lr 1e-3 in their code) with cosine annealing and early
+  stopping on a validation set. We use the fixed SGD recipe of He et al., the standard one for ResNet20, with the same
+  number of epochs for every regime and no model selection. The val set stays clean for the confidence units.
+- **Finished runs.** `model.pt` is written atomically at the end of a phase, so its presence marks a finished run;
+  there is no separate "done" file.
 
 ### Data
 
@@ -173,7 +188,7 @@ The regimes follow Kubaty et al. 2025, built from three phases:
 - **Test set.** All 10,000 images are kept; the calibration / evaluation split is chosen at analysis time.
 - **CIFAR-10-C and CIFAR-100-C** (Hendrycks and Dietterich 2019; Zenodo records 2535967 and 3555552): 19 corruptions,
   15 standard and 4 extra, each at 5 severities. Row (s − 1)·10000 + i of a file is test image i at severity s.
-  The tests check this order for every corruption by comparing images, because the labels file is shared.
+  The tests check this order for every corruption and severity by comparing images, because the labels file is shared.
 
 ### Confidence units
 
@@ -191,11 +206,13 @@ The regimes follow Kubaty et al. 2025, built from three phases:
 ```bash
 bash scripts/download_cifar_c.sh                 # CIFAR-10-C and CIFAR-100-C, about 5.8 GB, md5 checked
 # training: on Colab with notebooks/colab_training.ipynb (networks saved on Drive), or locally:
-python scripts/run_trainings.py --seeds 0 --jobs 1
+python scripts/run_trainings.py --seeds 0 1 2 --jobs 1
 # copy the folder outputs/cifar from Drive into outputs/cifar, then on the Mac:
 caffeinate -i bash scripts/export_all.sh         # val, test and CIFAR-C outputs of every network
 python scripts/first_look.py                     # accuracy per exit and a first check with Fast yet Safe
 pytest -rs
+# CIFAR-C features of a network of seed 1 or 2 (rewrites its whole preds/ folder and metrics.json):
+python scripts/export_outputs.py --run-dir outputs/cifar/cifar100/mixed/seed1 --features
 ```
 
 - **Training outputs:**
@@ -204,11 +221,102 @@ pytest -rs
   - phase 1 goes in `outputs/cifar/<dataset>/backbone/seed<k>/`.
 - **Export outputs** (`preds/`, numpy arrays that can be opened with `mmap_mode="r"`):
   - logits (N, 9, C), confidences (N, 9) and labels for val and test;
-  - head features (N, 4352, float16) for val and test;
+  - head features (N, 4352, float16) for val and test: the α-mixed 4x4 maps of exits 1 to 8, one after the other;
   - per corruption, logits (5, 10000, 9, C) and confidences;
   - CIFAR-C features only for seed 0, because they take about 8.3 GB per network;
   - also `conf_label.pt` and `metrics.json`, with the accuracy of every exit, clean and per corruption and severity.
-- **Timing.** On the Mac (Apple M5, MPS) one epoch takes about 18 s, mostly GPU time: about 14 s for a training step
-  without data loading. Two trainings at the same time do not go faster, so the full block (about 6,000 epochs) runs
-  on Colab.
-- **Reproducibility.** Results on MPS and CUDA are not reproducible bit by bit.
+- **Timing on the Mac.** On the Mac (Apple M5, MPS) one epoch takes about 18 s, mostly GPU time: about 14 s for a
+  training step without data loading. Two trainings at the same time do not go faster, so the full block (6,720
+  epochs) ran on Colab, as planned at the timing check.
+- **Timing on Colab.** On one A100 with 3 trainings at a time (`--jobs 3`), median time of one epoch per training:
+  backbone 11.6 s, heads 7.9 s, whole network 12.0 s, with self distillation 13.7 s (about 4 s overall). That is about
+  2.5 hours for seed 0 and 5 hours for seeds 1 and 2, estimated from the epoch times.
+- **Export.** On the Mac it takes 2 to 4 minutes per network, and about 108 GB for the 24 networks.
+- **Reproducibility.** All 24 networks were trained on CUDA with commit `de7fc3e`, the tip of the branch during the
+  trainings, and exported on MPS. Their `args.json` files predate the provenance fields. Training scripts now also
+  record the commit (with `-dirty` for uncommitted changes), the torch version and the GPU, and the notebook can pin
+  a commit. Results on MPS and CUDA are not reproducible bit by bit.
+
+### Results of block 2
+
+All numbers are on the test set, averaged over the 3 seeds. They come from `metrics.json` and from
+`python scripts/first_look.py`, which also writes `outputs/cifar/first_look_*.csv` and `first_look.png`.
+
+**Accuracy per exit, clean test set.** The standard deviation over seeds is at most 0.03, and 0.04 at exit 4 of
+CIFAR100 disjoint (a head with α < 0, see Model).
+
+| dataset | regime | exit 1 | exit 2 | exit 3 | exit 4 | exit 5 | exit 6 | exit 7 | exit 8 | exit 9 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| CIFAR10 | joint | 0.715 | 0.769 | 0.776 | 0.830 | 0.861 | 0.876 | 0.886 | 0.894 | 0.892 |
+| CIFAR10 | disjoint | 0.573 | 0.592 | 0.661 | 0.747 | 0.778 | 0.806 | 0.860 | 0.893 | 0.913 |
+| CIFAR10 | mixed | 0.695 | 0.747 | 0.768 | 0.833 | 0.866 | 0.879 | 0.892 | 0.904 | 0.904 |
+| CIFAR10 | joint_sd | 0.709 | 0.757 | 0.770 | 0.825 | 0.858 | 0.868 | 0.873 | 0.875 | 0.874 |
+| CIFAR100 | joint | 0.441 | 0.468 | 0.487 | 0.550 | 0.594 | 0.612 | 0.643 | 0.655 | 0.644 |
+| CIFAR100 | disjoint | 0.280 | 0.291 | 0.323 | 0.454 | 0.510 | 0.540 | 0.614 | 0.642 | 0.659 |
+| CIFAR100 | mixed | 0.414 | 0.443 | 0.468 | 0.565 | 0.601 | 0.617 | 0.648 | 0.665 | 0.656 |
+| CIFAR100 | joint_sd | 0.431 | 0.469 | 0.488 | 0.563 | 0.593 | 0.606 | 0.627 | 0.629 | 0.620 |
+
+- **Exit 9 of disjoint is the plain ResNet20.** It reaches 91.3% on CIFAR10, against 91.25% in He et al. with 50,000
+  training images, and 65.9% on CIFAR100, against about 68.8% in chenyaofo/pytorch-cifar-models. On CIFAR100 this
+  is slightly below the 66-68% we expected; we train on 45,000 images with weight decay 1e-4 for 160 epochs.
+- **Early exits.** At exit 1, joint, mixed and joint_sd are 12 to 16 points above disjoint, and still 11 to 18 points
+  above at exits 2 and 3, as in Kubaty et al. 2025. Mixed has the best late exits among the regimes that train the
+  whole network.
+- **Cost on exit 9.** Training the whole network costs exit 9 between 0.3 and 3.9 points with respect to the plain
+  ResNet20. With the uniform mean over 9 exits, the last block gets 1/9 of the gradient. In every regime that trains
+  the whole network, exit 9 is at most as accurate as exit 8 (up to 1.1 points below on CIFAR100). This matters later,
+  because the consistency risk is measured against exit 9.
+- **Self distillation** (α = 0.5, τ = 3) keeps the early exits within about 1.5 points of joint, which is within the
+  noise due to α, and lowers exit 9 by about 2 points. The training loss rises in the low lr stages, because the
+  teacher gets sharper while the small heads cannot follow it.
+
+**Accuracy on CIFAR-C**, mean over the 15 standard corruptions and the 5 severities:
+
+| dataset | regime | exit 1 | exit 5 | exit 9 |
+|---|---|---|---|---|
+| CIFAR10 | joint | 0.504 | 0.614 | 0.646 |
+| CIFAR10 | disjoint | 0.439 | 0.531 | 0.674 |
+| CIFAR10 | mixed | 0.502 | 0.617 | 0.655 |
+| CIFAR10 | joint_sd | 0.494 | 0.599 | 0.628 |
+| CIFAR100 | joint | 0.261 | 0.342 | 0.361 |
+| CIFAR100 | disjoint | 0.170 | 0.307 | 0.399 |
+| CIFAR100 | mixed | 0.244 | 0.346 | 0.377 |
+| CIFAR100 | joint_sd | 0.263 | 0.342 | 0.349 |
+
+- **Drop with respect to clean.** The drop of exit 9 from clean accuracy is 24 to 28 points, in line with Hendrycks and
+  Dietterich 2019 for standard training. The absolute error is higher than for the wide networks of that paper because
+  ResNet20 is smaller.
+- **Early exits lose fewer points.** In absolute points the early exits lose less than exit 9 (not always in relative
+  terms). With strong noise at severity 5, exit 1 can even be more accurate than exit 9.
+
+**First look at Fast yet Safe under shift** (UCB, consistency risk, ε = 0.05, δ = 0.1, max softmax).
+- **Setup.**
+  - λ is calibrated on 5,000 clean test images and kept fixed, on 100 random splits.
+  - Risk and savings are measured on the other 5,000 images, clean and corrupted (15 standard corruptions).
+  - "Violations" is the fraction of (corruption, split) pairs with risk above ε.
+
+| dataset | regime | clean risk / savings | severity 1 | severity 3 | severity 5 | violations at severity 5 |
+|---|---|---|---|---|---|---|
+| CIFAR10 | joint | 0.044 / 0.580 | 0.063 / 0.502 | 0.082 / 0.425 | 0.122 / 0.378 | 0.93 |
+| CIFAR10 | disjoint | 0.043 / 0.380 | 0.072 / 0.328 | 0.094 / 0.280 | 0.145 / 0.268 | 0.95 |
+| CIFAR10 | mixed | 0.044 / 0.565 | 0.067 / 0.491 | 0.096 / 0.415 | 0.151 / 0.364 | 0.89 |
+| CIFAR10 | joint_sd | 0.044 / 0.590 | 0.061 / 0.514 | 0.073 / 0.434 | 0.097 / 0.379 | 0.93 |
+| CIFAR100 | joint | 0.043 / 0.248 | 0.046 / 0.187 | 0.051 / 0.139 | 0.062 / 0.118 | 0.56 |
+| CIFAR100 | disjoint | 0.043 / 0.153 | 0.053 / 0.117 | 0.064 / 0.091 | 0.088 / 0.084 | 0.69 |
+| CIFAR100 | mixed | 0.044 / 0.243 | 0.049 / 0.183 | 0.058 / 0.140 | 0.070 / 0.118 | 0.51 |
+| CIFAR100 | joint_sd | 0.043 / 0.302 | 0.046 / 0.237 | 0.050 / 0.178 | 0.063 / 0.156 | 0.56 |
+
+- **Clean data.** The guarantee holds: the risk is about 0.044, and the fraction of splits above ε is 0.05 to 0.10,
+  compatible with δ = 0.1 and 100 splits.
+- **Under shift, with λ fixed,** the risk goes above ε already at severity 1 on CIFAR10, and the savings go down. On
+  CIFAR10 joint they fall from 0.58 to 0.38 at severity 5. This is hypothesis H2 of the project document (with λ
+  fixed the risk goes above ε). Hypothesis H1 is about the savings at a fixed risk level, so it needs the best λ on
+  the shifted data: that is the week 4 analysis, with the decomposition over exits and valid savings only.
+- **Learned confidence units.** The units fitted on val ("label" target) are calibrated on average, but they separate
+  correct from wrong predictions much worse than the max softmax.
+  - AUROC for "the exit is correct" on the clean test set, exits 1 to 8 (`first_look_auroc.csv`): 0.58 to 0.74 for
+    the units, against 0.74 to 0.91 for the max softmax.
+  - Adding the logits of the head as a linear input would not help, because they are a linear function of the same
+    features. The unit needs nonlinear scores of the head output, such as max softmax, margin or entropy, or a small
+    nonlinear model.
+  - This is a week 4 item. It can be refitted from the saved logits and features without a new export.

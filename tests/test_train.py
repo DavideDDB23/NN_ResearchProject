@@ -1,13 +1,15 @@
 import os
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
 import eesavings.train as train_module
 from eesavings.models import MultiExitResNet20
-from eesavings.train import joint_loss, load_model, self_distillation_loss, train_phase, train_regime
+from eesavings.train import (joint_loss, load_model, phase_loss, self_distillation_loss, train_phase,
+                             train_regime)
 
 
 def tiny_loaders(n=64, num_classes=10):
@@ -132,3 +134,39 @@ def test_disjoint_and_mixed_reuse_the_saved_backbone(tmp_path, monkeypatch):
     before = (tmp_path / "mixed" / "model.pt").read_bytes()
     train_regime(make, "mixed", train_loader, val_loader, 1, "cpu", str(tmp_path / "mixed"), str(backbone_dir))
     assert (tmp_path / "mixed" / "model.pt").read_bytes() == before
+
+
+def test_each_phase_uses_the_right_loss():
+    logits, y = torch.randn(8, 9, 10), torch.randint(0, 10, (8,))
+    assert torch.isclose(phase_loss("backbone", logits, y), F.cross_entropy(logits[:, -1], y))
+    assert torch.isclose(phase_loss("all", logits, y), joint_loss(logits, y))
+    assert torch.isclose(phase_loss("all_sd", logits, y), self_distillation_loss(logits, y))
+    assert torch.isclose(phase_loss("heads", logits, y), joint_loss(logits, y, exits=range(8)))  # exit 9 is frozen
+
+
+def test_every_regime_gets_the_same_budget(tmp_path):
+    # joint and joint_sd train 2 x epochs in one phase, disjoint and mixed 1 x epochs after the 1 x epochs backbone
+    train_loader, val_loader = tiny_loaders()
+    torch.manual_seed(0)
+    for regime in ["joint", "joint_sd", "disjoint", "mixed"]:
+        train_regime(lambda: MultiExitResNet20(10), regime, train_loader, val_loader, 2, "cpu",
+                     str(tmp_path / regime), str(tmp_path / "backbone"), seed=0)
+    rows = {r: len(pd.read_csv(tmp_path / r / "log.csv")) for r in ["joint", "joint_sd", "disjoint", "mixed", "backbone"]}
+    assert rows == {"joint": 4, "joint_sd": 4, "disjoint": 2, "mixed": 2, "backbone": 2}
+    # the lr is divided at 50% and 75% of the phase, and a 2 epoch phase starts at lr 0.1
+    lr = pd.read_csv(tmp_path / "joint" / "log.csv").lr.round(6).tolist()
+    assert lr == [0.1, 0.1, 0.01, 0.001]
+
+
+def test_each_phase_has_its_own_random_stream():
+    # the same phase with the same seed gives the same network, whatever ran before it in the process
+    torch.manual_seed(0)
+    start = MultiExitResNet20(10).state_dict()
+    a, b = MultiExitResNet20(10), MultiExitResNet20(10)
+    a.load_state_dict(start)
+    b.load_state_dict(start)
+    loaders = tiny_loaders()  # the same loaders for all phases, as in one training process
+    train_phase(a, "all", *loaders, 1, "cpu", seed=3)
+    train_phase(MultiExitResNet20(10), "backbone", *loaders, 1, "cpu", seed=3)  # moves the random state on
+    train_phase(b, "all", *loaders, 1, "cpu", seed=3)
+    assert all(torch.equal(v, b.state_dict()[k]) for k, v in a.state_dict().items())

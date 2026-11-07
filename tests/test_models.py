@@ -95,3 +95,9 @@ def test_frozen_backbone_stays_in_eval_mode():
     assert model.heads[0].training
     assert all(not p.requires_grad for p in model.backbone_parameters())
     assert all(p.requires_grad for p in model.head_parameters())
+
+
+def test_mac_counting_does_not_change_the_model():
+    model = make_model().train()
+    exit_macs(model)
+    assert model.training and next(model.parameters()).device.type == "cpu"

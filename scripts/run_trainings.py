@@ -13,7 +13,8 @@ import subprocess
 import sys
 import time
 
-REGIMES = ["joint", "joint_sd", "disjoint", "mixed"]
+from eesavings.train import REGIMES
+
 TRAIN_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "train_multiexit.py")
 
 

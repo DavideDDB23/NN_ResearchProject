@@ -2,6 +2,8 @@ import numpy as np
 
 from eesavings.savings import (
     RESNET20_CIFAR_CUM_MMACS,
+    RESNET20_EXIT_MACS,
+    RESNET20_FULL_MACS,
     cost_fractions,
     exit_distribution,
     per_exit_disagreement,
@@ -46,3 +48,18 @@ def test_per_exit_disagreement():
     losses = np.array([1.0, 0.0, 1.0, 0.0])
     q = per_exit_disagreement(exits, losses, 4)
     assert q[0] == 0.5 and q[1] == 1.0 and q[2] == 0.0 and np.isnan(q[3])
+
+
+def test_savings_against_the_plain_network():
+    # reference = plain ResNet20 without intermediate heads: exit 9 costs a bit more than the reference
+    for dataset in ["cifar10", "cifar100"]:
+        f = cost_fractions(RESNET20_EXIT_MACS[dataset], RESNET20_FULL_MACS[dataset])
+        assert f[-1] > 1 and np.all(np.diff(f) > 0)
+        assert savings_from_exits(np.array([9, 9]), f) < 0  # nobody exits early: a small loss
+        assert np.isclose(savings_from_exits(np.array([1]), f), 1 - f[0])
+        # the decomposition over the exits still sums to the change, and exit 9 now contributes
+        pi_before, pi_after = np.array([0.5] + [0] * 7 + [0.5]), np.array([0] * 8 + [1.0])
+        contrib = savings_change_by_exit(pi_before, pi_after, f)
+        before = savings_from_exits(np.array([1, 9]), f)
+        after = savings_from_exits(np.array([9, 9]), f)
+        assert np.isclose(contrib.sum(), before - after) and contrib[-1] != 0

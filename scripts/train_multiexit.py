@@ -9,6 +9,7 @@
 import argparse
 import json
 import os
+import subprocess
 
 import torch
 from torch.utils.data import DataLoader, Subset
@@ -16,6 +17,16 @@ from torch.utils.data import DataLoader, Subset
 from eesavings.data.cifar import NUM_CLASSES, cifar_datasets
 from eesavings.models import MultiExitResNet20
 from eesavings.train import REGIMES, train_backbone, train_regime
+
+
+def git_commit():
+    # commit of the code that runs ("-dirty" if there are uncommitted changes), or "unknown" outside a git checkout
+    try:
+        result = subprocess.run(["git", "describe", "--always", "--dirty", "--abbrev=40"],
+                                cwd=os.path.dirname(os.path.abspath(__file__)), capture_output=True, text=True)
+    except OSError:  # git is not installed
+        return "unknown"
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
 def default_device():
@@ -62,9 +73,18 @@ def main():
     def make_model():
         return MultiExitResNet20(NUM_CLASSES[args.dataset])
 
-    os.makedirs(run_dir, exist_ok=True)
-    with open(os.path.join(run_dir, "args.json"), "w") as f:
-        json.dump(vars(args), f, indent=2)
+    # record the arguments and where the run happened (code version, torch, GPU), only for a run that trains:
+    # a finished run keeps the args.json it was trained with. Disjoint and mixed may also train the backbone.
+    info = dict(vars(args), git_commit=git_commit(), torch=torch.__version__, cuda=torch.version.cuda,
+                gpu=torch.cuda.get_device_name() if args.device == "cuda" else args.device)
+    dirs = [(run_dir, args.regime)]
+    if args.regime in ("disjoint", "mixed"):
+        dirs.append((backbone_dir, "backbone"))
+    for d, regime in dirs:
+        if not os.path.exists(os.path.join(d, "model.pt")):
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "args.json"), "w") as f:
+                json.dump(dict(info, regime=regime), f, indent=2)
 
     if args.regime == "backbone":
         train_backbone(make_model, train_loader, val_loader, args.epochs, args.device, backbone_dir, seed=args.seed)

@@ -1,7 +1,9 @@
 # Compute savings of an early exit network.
-# An input that exits at exit l costs c_l, the full network costs c_L.
-# Savings S = 1 - mean(c_exit) / c_L = sum over l < L of pi_l * (1 - c_l / c_L),
+# An input that exits at exit l costs c_l, and c_ref is the cost of the reference network.
+# Savings S = 1 - mean(c_exit) / c_ref = sum over l = 1..L of pi_l * (1 - c_l / c_ref),
 # where pi_l is the fraction of inputs that exit at l. Exits are 1-indexed like in Fast yet Safe.
+# With c_ref = c_L (the default, as in block 1) the term of exit L is zero. For our ResNet20 the reference is the
+# plain network without intermediate heads (RESNET20_FULL_MACS): c_L > c_ref, so the term of exit L is negative.
 
 import numpy as np
 

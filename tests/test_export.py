@@ -1,11 +1,12 @@
 import json
+import zlib
 
 import numpy as np
 import pytest
 import torch
 
 from conftest import ROOT
-from eesavings.data.cifar import ALL_CORRUPTIONS, NUM_CLASSES, to_tensor_batch
+from eesavings.data.cifar import ALL_CORRUPTIONS, NUM_CLASSES, cifar_arrays, load_cifar_c, to_tensor_batch
 from eesavings.export import confidence_targets, fit_confidence, predict, set_confidence, split_features
 from eesavings.models import FEATURE_DIMS, MultiExitResNet20
 from eesavings.train import load_model
@@ -52,33 +53,43 @@ def test_fitted_units_reproduce_the_logistic_regressions():
 
 @pytest.mark.parametrize("run_dir", EXPORTED_RUNS, ids=[str(p.relative_to(ROOT)) for p in EXPORTED_RUNS])
 def test_saved_outputs_match_a_new_forward(run_dir):
+    # random rows of val, test and every corruption of CIFAR-C, recomputed from model.pt and conf_label.pt
     with open(run_dir / "args.json") as f:
         dataset = json.load(f)["dataset"]
     model = load_model(MultiExitResNet20(NUM_CLASSES[dataset]), str(run_dir / "model.pt")).eval()
     saved_conf = torch.load(run_dir / "conf_label.pt", weights_only=True)
     set_confidence(model, [w.numpy() for w in saved_conf["weights"]], saved_conf["biases"].numpy())
     preds = run_dir / "preds"
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(zlib.crc32(str(run_dir.relative_to(ROOT)).encode()))  # different rows per run
 
-    def check(images, logits, conf):
+    def check(images, logits, conf, features=None):
         with torch.no_grad():
-            z, c = model(to_tensor_batch(images, dataset))
-        # the files were written on MPS, here we recompute on CPU: small numerical differences are expected
+            z, c, f = model(to_tensor_batch(images, dataset), return_features=True)
+        # the files were written on MPS, here we recompute on CPU: small numerical differences are expected;
+        # the features are saved in float16
         assert np.allclose(z.numpy(), logits, atol=1e-3, rtol=1e-3)
         assert np.allclose(c.numpy(), conf, atol=1e-3)
+        if features is not None:
+            assert np.allclose(torch.cat(f, dim=1).numpy(), features.astype(np.float32), atol=2e-2, rtol=1e-2)
 
-    from eesavings.data.cifar import cifar_arrays, load_cifar_c
-    test_images, test_labels = cifar_arrays(dataset, "test", str(ROOT / "data"))
-    idx = rng.choice(10000, size=20, replace=False)
-    check(test_images[idx], np.load(preds / "test_logits.npy")[idx], np.load(preds / "test_conf.npy")[idx])
-    assert np.array_equal(np.load(preds / "test_labels.npy"), test_labels)
+    for split in ["val", "test"]:
+        images, labels = cifar_arrays(dataset, split, str(ROOT / "data"))
+        idx = rng.choice(len(images), size=20, replace=False)
+        features = np.load(preds / f"{split}_features.npy", mmap_mode="r")
+        check(images[idx], np.load(preds / f"{split}_logits.npy")[idx], np.load(preds / f"{split}_conf.npy")[idx],
+              features[idx])
+        assert np.array_equal(np.load(preds / f"{split}_labels.npy"), labels)
 
-    for corruption in rng.choice(ALL_CORRUPTIONS, size=3, replace=False):
+    _, test_labels = cifar_arrays(dataset, "test", str(ROOT / "data"))
+    assert np.array_equal(np.load(preds / "cifar_c" / "labels.npy"), test_labels)
+    for corruption in ALL_CORRUPTIONS:
         images, _ = load_cifar_c(dataset, corruption, str(ROOT / "data"))
         logits = np.load(preds / "cifar_c" / f"{corruption}_logits.npy", mmap_mode="r")
         conf = np.load(preds / "cifar_c" / f"{corruption}_conf.npy", mmap_mode="r")
-        s, i = rng.integers(0, 5, size=10), rng.integers(0, 10000, size=10)
-        check(images[s, i], logits[s, i], conf[s, i])
+        feature_file = preds / "cifar_c" / f"{corruption}_features.npy"  # only for seed 0
+        features = np.load(feature_file, mmap_mode="r") if feature_file.exists() else None
+        s, i = rng.integers(0, 5, size=2), rng.integers(0, 10000, size=2)
+        check(images[s, i], logits[s, i], conf[s, i], None if features is None else features[s, i])
 
 
 @pytest.mark.parametrize("run_dir", EXPORTED_RUNS, ids=[str(p.relative_to(ROOT)) for p in EXPORTED_RUNS])
@@ -88,5 +99,5 @@ def test_val_confidence_matches_val_accuracy(run_dir):
     logits, conf = np.load(preds / "val_logits.npy"), np.load(preds / "val_conf.npy")
     labels = np.load(preds / "val_labels.npy")
     acc = (logits.argmax(axis=2) == labels[:, None]).mean(axis=0)
-    assert np.allclose(conf[:, :8].mean(axis=0), acc[:8], atol=5e-3)
+    assert np.allclose(conf[:, :8].mean(axis=0), acc[:8], atol=1e-3)
     assert np.load(preds / "val_features.npy", mmap_mode="r").shape == (5000, sum(FEATURE_DIMS))

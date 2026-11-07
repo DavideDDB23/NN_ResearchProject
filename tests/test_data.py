@@ -1,9 +1,10 @@
 import numpy as np
 import pytest
+import torch
 from torchvision import datasets
 
 from conftest import ROOT
-from eesavings.data.cifar import (ALL_CORRUPTIONS, CIFAR_C_FOLDER, MEAN, STD, cifar_arrays, cifar_c_row,
+from eesavings.data.cifar import (ALL_CORRUPTIONS, CIFAR_C_FOLDER, MEAN, SEVERITIES, STD, cifar_arrays, cifar_c_row,
                                   cifar_datasets, load_cifar_c, to_tensor_batch, train_val_indices)
 
 DATA = ROOT / "data"
@@ -38,6 +39,16 @@ def test_cifar_c_row():
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
+def test_load_cifar_c_follows_the_row_convention(dataset):
+    # image i at severity s of load_cifar_c is row cifar_c_row(s, i) of the raw file
+    need_cifar_c(dataset)
+    raw = np.load(DATA / CIFAR_C_FOLDER[dataset] / "fog.npy", mmap_mode="r")
+    images, _ = load_cifar_c(dataset, "fog", str(DATA))
+    for s, i in [(1, 0), (2, 17), (5, 9999)]:
+        assert np.array_equal(images[s - 1, i], raw[cifar_c_row(s, i)])
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
 def test_mean_and_std_of_the_training_images(dataset):
     need_cifar(dataset)
     images = CLASSES[dataset](DATA / dataset, train=True).data / 255.0
@@ -56,6 +67,16 @@ def test_val_images_are_not_in_the_training_subset(dataset):
     full = CLASSES[dataset](DATA / dataset, train=True)
     assert np.array_equal(images, full.data[val_set.indices])
     assert np.array_equal(labels, np.array(full.targets)[val_set.indices])
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_augmentation_only_on_the_training_subset(dataset):
+    need_cifar(dataset)
+    train_set, val_set, test_set = cifar_datasets(dataset, str(DATA), download=False)
+    # val and test items are always the same tensor; a training item changes (random crop and flip)
+    assert torch.equal(val_set[0][0], val_set[0][0]) and torch.equal(test_set[0][0], test_set[0][0])
+    torch.manual_seed(0)
+    assert any(not torch.equal(train_set[0][0], train_set[0][0]) for _ in range(5))
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
@@ -84,9 +105,9 @@ def test_cifar_c_files_and_labels(dataset):
 def test_cifar_c_images_follow_the_order_of_the_test_set(dataset):
     # labels.npy is shared by all corruptions, so it cannot reveal a file in a different order:
     # check the images. Each corrupted image must be closer (correlation) to its own clean image than to the
-    # other clean images, on 200 random indices. Chance level is 1/200: we ask for 90% at severity 1 and 50% at
-    # severity 5, where fog and contrast wash out the images (about 75% there on the real data).
-    min_matched = {1: 0.9, 5: 0.5}
+    # other clean images, on 200 random indices, at every severity. Chance level is 1/200: we ask for 90% at
+    # severities 1 to 3 and 50% at 4 and 5, where fog and contrast wash out the images (about 75% there).
+    min_matched = {1: 0.9, 2: 0.9, 3: 0.9, 4: 0.5, 5: 0.5}
     need_cifar_c(dataset)
     clean, _ = cifar_arrays(dataset, "test", str(DATA))
     idx = np.random.default_rng(0).choice(10000, size=200, replace=False)
@@ -99,7 +120,7 @@ def test_cifar_c_images_follow_the_order_of_the_test_set(dataset):
     reference = standardize(clean[idx])
     for corruption in ALL_CORRUPTIONS:
         images, _ = load_cifar_c(dataset, corruption, str(DATA))
-        for severity in [1, 5]:
+        for severity in SEVERITIES:
             similarity = standardize(images[severity - 1, idx]) @ reference.T
             matched = np.mean(similarity.argmax(axis=1) == np.arange(len(idx)))
             assert matched >= min_matched[severity], (corruption, severity, matched)

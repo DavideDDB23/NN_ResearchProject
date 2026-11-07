@@ -12,6 +12,8 @@
 #     We add a confidence unit (one linear output and a sigmoid) on the same features, as in Pomponi et al. 2022.
 #   - exit 9: the usual global average pooling and linear layer, so the backbone alone is a standard ResNet20.
 
+import copy
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -150,8 +152,8 @@ def exit_macs(model):
     # multiply-accumulates (MACs) of each block and head for one 32x32 image, counted on CPU with
     # FlopCounterMode, which counts only convolutions and linear layers (FLOPs = 2 MACs).
     # Pooling, BatchNorm, ReLU and additions are not counted.
-    # Returns block_macs (9,), head_macs (8,) and fc_macs (exit 9).
-    model = model.to("cpu").eval()
+    # Returns block_macs (9,), head_macs (8,) and fc_macs (exit 9). Works on a copy of the model.
+    model = copy.deepcopy(model).to("cpu").eval()
     counter = FlopCounterMode(display=False)
     with counter, torch.no_grad():
         model(torch.zeros(1, 3, 32, 32))
@@ -159,7 +161,7 @@ def exit_macs(model):
     prefix = type(model).__name__
 
     block_names = [f"layer{s}.{b}" for s in (1, 2, 3) for b in range(3)]
-    block_macs = [counts.get(f"{prefix}.{n}", 0) for n in block_names]
+    block_macs = [counts[f"{prefix}.{n}"] for n in block_names]
     block_macs[0] += counts[f"{prefix}.conv1"]  # the first convolution is paid by every input
     head_macs = [counts[f"{prefix}.heads.{l}"] for l in range(N_EXITS - 1)]
     fc_macs = counts[f"{prefix}.fc"]

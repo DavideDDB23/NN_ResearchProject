@@ -68,7 +68,6 @@ def phase_parameters(model, phase):
     if phase == "backbone":
         return model.backbone_parameters()
     if phase == "heads":
-        model.freeze_backbone()
         return model.head_parameters()
     return list(model.parameters())
 
@@ -92,16 +91,22 @@ def train_phase(model, phase, train_loader, val_loader, epochs, device, log_path
     # trains `model` for `epochs` epochs; after each epoch evaluates every exit on the val set and logs it
     assert phase in PHASES, phase
     if seed is not None:
-        # each phase gets its own random stream (order of the batches, augmentations), whatever ran before it
-        # in the same process: otherwise phase 2 of mixed would replay exactly the batches of phase 1
+        # each phase gets its own random stream, otherwise phase 2 of mixed would replay exactly the batches of
+        # phase 1. The order of the batches always depends only on (seed, phase). The augmentations too, except
+        # when one process trains two phases with persistent DataLoader workers (disjoint or mixed started by hand
+        # without a backbone): the workers of phase 1 then keep their random state. run_trainings.py avoids this by
+        # training the backbone as a job of its own.
         phase_seed = 1000 * seed + PHASES.index(phase)
         torch.manual_seed(phase_seed)
         if getattr(train_loader, "generator", None) is not None:
             train_loader.generator.manual_seed(phase_seed)
+    if phase == "heads":
+        model.freeze_backbone()  # no gradient for the backbone, and its BatchNorm stays in eval mode
     params = [p for p in phase_parameters(model, phase) if p.requires_grad]
     optimizer = torch.optim.SGD(params, lr=LR, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[epochs // 2, (3 * epochs) // 4],
-                                                     gamma=0.1)
+    # lr divided by 10 at 50% and 75% of the phase (at least after the first epoch, for very short test runs)
+    milestones = [max(1, epochs // 2), max(1, (3 * epochs) // 4)]
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.1)
     rows = []
     for epoch in range(1, epochs + 1):
         start = time.time()

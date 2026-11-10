@@ -1,11 +1,11 @@
-# Summary of the 24 trained networks, from their exported outputs (scripts/export_outputs.py):
+# Summary of the 24 trained networks, from their exported outputs (scripts/4_export/export_outputs.py):
 #   1) accuracy of every exit on the clean test set and on CIFAR-C (15 standard corruptions, then the 4 extra),
 #      mean over seeds and corruptions;
 #   2) how well two exit scores separate correct from wrong predictions on the clean test set (AUROC, exits 1..8):
 #      the max softmax and the confidence unit of the heads fitted at export time (target "label").
-# The savings under shift are computed by scripts/week4_savings.py.
+# The savings under shift are computed by scripts/5_savings_under_shift/savings_under_shift.py.
 #
-# Usage: python scripts/summarize_networks.py [--out-dir outputs/cifar]
+# Usage: python scripts/4_export/summarize_networks.py [--out-dir outputs/cifar]
 
 import argparse
 import glob
@@ -64,7 +64,8 @@ def main():
     pd.set_option("display.width", 200)
     for group in ["clean", "standard", "extra"]:
         table = acc[acc.group == group].groupby(["dataset", "regime", "severity", "exit"]).accuracy.mean()
-        print(f"\nAccuracy per exit, {group} (mean over seeds" + ("" if group == "clean" else " and corruptions") + "):")
+        averaged = "seeds" if group == "clean" else "seeds and corruptions"
+        print(f"\nAccuracy per exit, {group} (mean over {averaged}):")
         print(table.unstack("exit").round(3).to_string())
     print("\nAUROC for 'the exit is correct', clean test, exits 1-8 (min and max over exits of the mean over seeds):")
     mean_auroc = auroc.groupby(["dataset", "regime", "exit"])[["auroc_max_softmax", "auroc_conf_unit"]].mean()

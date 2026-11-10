@@ -1,6 +1,6 @@
 import numpy as np
 
-from eesavings.risk.bounds import hb_p_value, ucb_hb, ucb_wsr
+from eesavings.fys import hb_p_value, ucb_hb, ucb_wsr
 
 
 def test_wsr_bound_is_above_the_empirical_mean():

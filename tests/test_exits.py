@@ -1,7 +1,6 @@
 import numpy as np
 
-from eesavings.fys import losses_and_exits
-from eesavings.risk.exits import compute_exits, conf_measures
+from eesavings.fys import compute_exits, conf_measures, losses_and_exits
 
 LAMBDAS = np.round(np.arange(0.0, 1.001, 0.01)[::-1], 2)
 

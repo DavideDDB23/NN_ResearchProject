@@ -11,8 +11,7 @@
 import numpy as np
 
 from eesavings.data.cifar import N_TEST
-from eesavings.fys import losses_and_exits
-from eesavings.risk.bounds import ucb_wsr
+from eesavings.fys import losses_and_exits, ucb_wsr
 from eesavings.savings import exit_distribution, savings_from_exits
 
 # lambda grid, descending; row 0 is lambda = 1 (no early exit). Finer near 1 than the grid of Fast yet Safe,
@@ -38,7 +37,7 @@ def consistency_losses(logits, conf):
 
 
 def ucb_index(cal_losses, eps, delta):
-    # same choice as risk.calibration.ucb_lam: the last lambda before the first one whose UCB is not below eps
+    # same choice as fys.ucb_lam: the last lambda before the first one whose UCB is not below eps
     # (fixed sequence from lambda = 1 down). Computed in order, it stops at the first failure.
     for k in range(len(cal_losses)):
         if ucb_wsr(cal_losses[k], delta=delta) >= eps:

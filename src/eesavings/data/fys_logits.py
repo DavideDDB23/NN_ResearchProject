@@ -22,9 +22,3 @@ def read_img_cls_data(path, model, dataset):
 
     return logits, targets
 
-
-def max_exit(model, dataset, path):
-    # number of exits of a model
-    with open(f"{path}/{model}/{dataset}.p", "rb") as f:
-        data = pickle.load(f)
-    return data[0].shape[0]

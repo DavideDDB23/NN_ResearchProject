@@ -1,8 +1,6 @@
 import numpy as np
 
-from eesavings.fys import losses_and_exits
-from eesavings.risk.calibration import crc_lam, find_first_gap, rc_main, ucb_lam
-from eesavings.risk.bounds import ucb_wsr
+from eesavings.fys import crc_lam, find_first_gap, losses_and_exits, rc_main, ucb_lam, ucb_wsr
 
 LAMBDAS = np.round(np.arange(0.0, 1.001, 0.01)[::-1], 2)
 

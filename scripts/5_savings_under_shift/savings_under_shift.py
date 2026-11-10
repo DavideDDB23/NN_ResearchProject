@@ -11,11 +11,12 @@
 #          score re-fitted on those 1,000 held-out rows (on the rows used to fit the heads it would be overconfident),
 #          then M2. The adapted heads are also measured with the max softmax score, which needs no re-fit: that
 #          isolates the effect of the heads from the effect of re-fitting the score (M8a).
-# Only the 15 standard corruptions. One row per (network, score, eps, method, corruption, severity, split): one
-# file per network in outputs/week4/runs/ (networks already done are skipped, unless --force), all together in
-# outputs/week4/results.csv; scripts/week4_figures.py makes the tables and figures.
+# Only the 15 standard corruptions. One row per (network, score, eps, method, corruption, severity, split):
+# one file per network in outputs/savings_under_shift/runs/ (networks already done are skipped, unless --force),
+# all together in outputs/savings_under_shift/results.csv. savings_figures.py makes the tables and figures.
 #
-# Usage: python scripts/week4_savings.py [--workers 8] [--trials 5] [--adapt-trials 3] [--runs ...] [--force]
+# Usage: python scripts/5_savings_under_shift/savings_under_shift.py [--workers 8] [--trials 5] [--adapt-trials 3]
+#        [--runs ...] [--force] [--only-adaptation]
 
 import argparse
 import glob
@@ -49,7 +50,7 @@ def agreement_losses(logits, fit_rows):
 
 
 def run_file(runs_dir, run_dir):
-    # outputs/week4/runs/<dataset>_<regime>_seed<k>.csv
+    # outputs/savings_under_shift/runs/<dataset>_<regime>_seed<k>.csv
     return os.path.join(runs_dir, "_".join(run_dir.split(os.sep)[-3:]) + ".csv")
 
 
@@ -65,7 +66,8 @@ def calibration_rows(add, preds, splits, fractions):
         for eps in EPSILONS:
             for t, (_, cal, ev) in enumerate(splits):
                 clean_k[score, eps, t] = ucb_index(losses[:, cal], eps, DELTA)
-                add("clean", score, eps, "none", 0, t, measure(losses, exits, clean_k[score, eps, t], ev, fractions, eps))
+                result = measure(losses, exits, clean_k[score, eps, t], ev, fractions, eps)
+                add("clean", score, eps, "none", 0, t, result)
 
     for corruption in CORRUPTIONS:
         logits_c = np.load(f"{preds}/cifar_c/{corruption}_logits.npy", mmap_mode="r")
@@ -145,7 +147,7 @@ def analyse_run(job):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out-dir", default="outputs/cifar")
-    parser.add_argument("--results", default="outputs/week4/results.csv")
+    parser.add_argument("--results", default="outputs/savings_under_shift/results.csv")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--adapt-trials", type=int, default=3, help="splits used for the head adaptation (M8b)")

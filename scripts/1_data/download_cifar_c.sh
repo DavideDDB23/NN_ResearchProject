@@ -2,11 +2,11 @@
 # Download CIFAR-10-C and CIFAR-100-C (Hendrycks and Dietterich 2019) from Zenodo into data/.
 # Each archive is about 2.9 GB and contains 19 corruptions plus labels.npy.
 # The md5 values are the ones published on Zenodo (records 2535967 and 3555552).
-# Usage: bash scripts/download_cifar_c.sh [cifar10|cifar100|all]
+# Usage: bash scripts/1_data/download_cifar_c.sh [cifar10|cifar100|all]
 set -euo pipefail
 
 which="${1:-all}"
-root="$(cd "$(dirname "$0")/.." && pwd)/data"
+root="$(cd "$(dirname "$0")/../.." && pwd)/data"
 mkdir -p "$root"
 
 declare -a archives=(

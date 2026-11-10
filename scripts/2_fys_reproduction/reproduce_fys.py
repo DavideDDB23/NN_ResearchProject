@@ -6,8 +6,8 @@
 # in their files.
 #
 # Usage:
-#   python scripts/reproduce_fys.py              (5 splits, like the notebook)
-#   python scripts/reproduce_fys.py --trials 100 (100 splits, like the paper)
+#   python scripts/2_fys_reproduction/reproduce_fys.py              (5 splits, like the notebook)
+#   python scripts/2_fys_reproduction/reproduce_fys.py --trials 100 (100 splits, like the paper)
 
 import argparse
 import json
@@ -22,8 +22,7 @@ import pandas as pd
 
 from eesavings.data.fys_logits import read_img_cls_data
 from eesavings.fys import losses_and_exits
-from eesavings.risk.calibration import rc_main_fast
-from eesavings.risk.exits import get_acc_per_exit, get_preds_per_exit
+from eesavings.fys import get_acc_per_exit, get_preds_per_exit, rc_main_fast
 from eesavings.savings import exit_distribution, per_exit_disagreement
 
 DATA_DIR = "data/fys"

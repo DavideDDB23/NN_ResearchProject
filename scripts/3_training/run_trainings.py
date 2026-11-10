@@ -5,7 +5,8 @@
 # from its first epoch.
 #
 # Usage (from the repository root):
-#   python scripts/run_trainings.py --seeds 0 --jobs 3 --out-dir /content/drive/MyDrive/NN_ResearchProject/outputs/cifar
+#   python scripts/3_training/run_trainings.py --seeds 0 --jobs 3 \
+#       --out-dir /content/drive/MyDrive/NN_ResearchProject/outputs/cifar
 
 import argparse
 import os

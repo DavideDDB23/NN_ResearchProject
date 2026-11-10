@@ -7,7 +7,6 @@ import pytest
 
 from conftest import FYS_DATA
 from eesavings import fys
-from eesavings.risk import calibration
 
 LAMBDAS = np.arange(0.0, 1.001, 0.01)[::-1]
 EPS = np.arange(0.01, 0.51, 0.05)
@@ -17,7 +16,7 @@ RISKS = ["prediction-consistency", "prediction-gt-gap", "confidence-brier", "con
 def _same_rc(up_rc, losses, exits, loss_bound):
     kw = dict(eps_grid=EPS, rcp_types=["naive", "ucb-wsr", "crc"], loss_bound=loss_bound,
               n_trials=3, n_cal=100, delta=0.1, seed=7)
-    ours = calibration.rc_main(losses, exits.mean(axis=1), **kw)
+    ours = fys.rc_main(losses, exits.mean(axis=1), **kw)
     theirs = up_rc.rc_main(losses, exits.mean(axis=1), **kw)
     for a, b in zip(ours, theirs):
         for key in a:
@@ -46,8 +45,8 @@ def test_fast_version_matches_the_slow_one(logits_targets, risk_type):
     losses, exits = fys.losses_and_exits(logits, targets, LAMBDAS, risk_type)
     kw = dict(eps_grid=EPS, rcp_types=["naive", "ucb-wsr", "crc"], n_trials=3, n_cal=100,
               delta=0.1, seed=3, loss_bound=2 if "brier" in risk_type else 1)
-    slow = calibration.rc_main(losses, exits.mean(axis=1), **kw)
-    fast = calibration.rc_main_fast(losses, exits.mean(axis=1), **kw)
+    slow = fys.rc_main(losses, exits.mean(axis=1), **kw)
+    fast = fys.rc_main_fast(losses, exits.mean(axis=1), **kw)
     for a, b in zip(slow, fast[:3]):
         for key in a:
             assert np.allclose(np.array(a[key]), np.array(b[key])), key

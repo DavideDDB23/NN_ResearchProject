@@ -9,7 +9,7 @@
 #   and with --features also _features.npy (5, 10000, 4352) float16; preds/cifar_c/labels.npy (10000,)
 #   conf_label.pt: weights of the 8 confidence units (target "label")
 #
-# Usage: python scripts/export_outputs.py --run-dir outputs/cifar/cifar100/joint/seed0 [--features]
+# Usage: python scripts/4_export/export_outputs.py --run-dir outputs/cifar/cifar100/joint/seed0 [--features]
 
 import argparse
 import json

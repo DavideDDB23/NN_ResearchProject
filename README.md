@@ -6,7 +6,8 @@ We study how the compute savings of an early exit network change under distribut
 when its label-free risk control (Fast yet Safe, Jazbec et al., NeurIPS 2024) must stay valid,
 and how much of those savings an adaptation phase of the exit heads can recover, net of its cost.
 The full plan is in the project document "Compute savings degli early exit sotto shift"
-(https://claude.ai/artifact/MNreFiy1XTNWcYZcUC8axi).
+(https://claude.ai/artifact/MNreFiy1XTNWcYZcUC8axi). Everything we found along the way, including what came from code
+that was later removed, is in `docs/findings.md`.
 
 Block 1 sets up the code and reproduces Fast yet Safe on its released ImageNet logits.
 Block 2 trains a multi exit ResNet20 on CIFAR10 and CIFAR100 with four training regimes and saves
@@ -32,36 +33,55 @@ git clone https://github.com/jaryP/ConfidenceBranchNetwok.git third_party/Confid
 git -C third_party/ConfidenceBranchNetwok checkout 405d273
 ```
 
-## Code
+## How the code is organized
 
-- `src/eesavings/risk/`: exit rule, losses, bounds and threshold calibration, copied from Fast yet Safe with the same function names,
-  plus our `rc_main_fast` (same results as `rc_main`, but faster), which the script uses.
-- `src/eesavings/fys.py`: losses and exits for every threshold of the grid, from the logits of all exits.
-- `src/eesavings/savings.py`: compute savings and their decomposition over the exits, and the cost of every exit of our ResNet20.
-- `src/eesavings/models.py`: multi exit ResNet20 (9 exits), pooled heads with a confidence unit, MAC counting.
-- `src/eesavings/data/cifar.py`: CIFAR10/100, CIFAR-C, train/val split.
-- `src/eesavings/train.py`: losses, training phases and regimes.
-- `src/eesavings/export.py`: outputs of a trained network on a set of images, fitting of the confidence units.
-- `src/eesavings/scores.py`, `analysis.py`, `adaptation.py`: exit scores, savings at a fixed risk level, offline
-  adaptation of the heads (block 3).
-- `src/eesavings/controller.py` and `docs/controller_bound.md`: threshold controller with random audits and the
-  proof of its long-run bound.
-- `scripts/download_fys_logits.sh`: downloads the logits released with Fast yet Safe (ImageNet about 3.4 GB, CIFAR100 about 60 MB).
-- `scripts/reproduce_fys.py`: reproduces their image classification experiment.
-- `scripts/download_cifar_c.sh`, `train_multiexit.py`, `run_trainings.py`, `export_outputs.py`, `export_all.sh`,
-  `first_look.py` and `notebooks/colab_training.ipynb`: block 2 (see below).
-- `scripts/week4_savings.py` and `week4_figures.py`: block 3 (see below).
-- `tests/`: unit tests, plus tests that compare our code with the original code of Fast yet Safe and of Pomponi et al.
-  Tests that need data (CIFAR, CIFAR-C, exported outputs) are skipped when the data is missing: `pytest -rs` lists them.
+- **`src/eesavings/`** is the package: the methods.
+- **`scripts/`** has the programs that run the methods, in one folder per phase. The folders are numbered in the
+  order to run them:
+  - `1_data` downloads the data;
+  - `2_fys_reproduction` reproduces Fast yet Safe (block 1);
+  - `3_training` trains the networks;
+  - `4_export` saves their outputs and summarizes them;
+  - `5_savings_under_shift` measures the savings under shift at a fixed risk level (week 4 of the plan).
+- **`tests/`** has one test file per module.
 
-## Reproducing Fast yet Safe
+A suggested reading order, from the basics to the last block:
+
+| # | File | What it does | Block |
+|---|---|---|---|
+| 1 | `src/eesavings/fys.py` | Fast yet Safe: exit rule, losses, concentration bounds (WSR), calibration of λ | 1 |
+| 2 | `src/eesavings/savings.py` | savings from the exits, decomposition over the exits, cost of every exit | 1, 2 |
+| 3 | `src/eesavings/data/cifar.py` | CIFAR10/100 and CIFAR-C, train/val split, row order of CIFAR-C | 2 |
+| 4 | `src/eesavings/models.py` | multi exit ResNet20, pooled heads, MAC counting | 2 |
+| 5 | `src/eesavings/train.py` | losses, training phases and regimes | 2 |
+| 6 | `scripts/3_training/train_multiexit.py`, `scripts/3_training/run_trainings.py`, `notebooks/colab_training.ipynb` | train one network, all of them, or on Colab | 2 |
+| 7 | `src/eesavings/export.py`, `scripts/4_export/export_outputs.py`, `scripts/4_export/export_all.sh` | outputs of a trained network on val, test and CIFAR-C | 2 |
+| 8 | `scripts/4_export/summarize_networks.py` | accuracy of every exit and AUROC of the exit scores | 2 |
+| 9 | `src/eesavings/scores.py` | exit scores: max softmax, temperature, learned P(correct) and P(agreement) | 3 |
+| 10 | `src/eesavings/analysis.py` | splits, UCB choice of λ, risk and savings on a set of rows | 3 |
+| 11 | `src/eesavings/adaptation.py` | offline adaptation of the heads by distillation towards exit 9 | 3 |
+| 12 | `scripts/5_savings_under_shift/savings_under_shift.py`, `scripts/5_savings_under_shift/savings_figures.py` | savings under shift at a fixed risk level, and their tables and figures | 3 |
+| 13 | `src/eesavings/controller.py`, `docs/controller_bound.md` | threshold controller with random audits and its bound | weeks 5-7 |
+| 14 | `docs/findings.md` | log of everything found so far, block by block | all |
+
+- **Block 1 only:**
+  - `src/eesavings/data/fys_logits.py` reads the logits released with Fast yet Safe;
+  - `scripts/1_data/download_fys_logits.sh` downloads them;
+  - `scripts/2_fys_reproduction/reproduce_fys.py` reproduces their ImageNet experiment.
+- **Tests:**
+  - `test_upstream_equivalence.py` compares our code with the original code of Fast yet Safe;
+  - `test_models.py` compares the backbone with Pomponi et al.;
+  - tests that need data (CIFAR, CIFAR-C, exported outputs) are skipped when the data is missing, and
+    `pytest -rs` lists them.
+
+## Block 1: reproducing Fast yet Safe
 
 Run everything from the repository root.
 
 ```bash
-bash scripts/download_fys_logits.sh imagenet
-python scripts/reproduce_fys.py              # 5 splits, as in their notebook
-python scripts/reproduce_fys.py --trials 100 # 100 splits, as in the paper
+bash scripts/1_data/download_fys_logits.sh imagenet
+python scripts/2_fys_reproduction/reproduce_fys.py              # 5 splits, as in their notebook
+python scripts/2_fys_reproduction/reproduce_fys.py --trials 100 # 100 splits, as in the paper
 pytest
 ```
 
@@ -69,7 +89,7 @@ Results go to `outputs/fys/trials<N>/`: a CSV with test risk, violation rate, me
 savings for every model, risk, method and eps, a figure, and `models.json` with the accuracy
 of every exit and, for the consistency risk, how the inputs spread over the exits.
 
-## Results of the reproduction
+### Results of the reproduction
 
 All numbers are on the ImageNet logits of Fast yet Safe (50,000 images, 100 for calibration, the rest for test).
 
@@ -111,24 +131,6 @@ index, 1 - mean exit / L (the real FLOPs per exit are not in their files).
 CRC uses the risk budget almost fully (test risk close to eps) and saves 4 to 15 points more than UCB,
 which pays for its high probability guarantee. These are the in-distribution savings that the next part
 of the project measures again under shift.
-
-## Notes on the Pomponi et al. code (checked before block 2)
-
-We ran one epoch of ResNet20 with its 10 branches on CIFAR10, on the Mac (Apple M5, MPS), outside this
-repository. The original code needs two small fixes to start: `utils.py` imports `models/vgg.py`, which is
-not in the repository, and `main.py` imports `adaptive_trainer`, which `base/trainer.py` does not define.
-With `training.device=mps` it then runs end to end (training, evaluation, saved checkpoints).
-
-Time of one training epoch (batch 64, including the evaluation at the end of training):
-
-| method   | what it trains                              | time per epoch |
-|----------|---------------------------------------------|----------------|
-| joint    | backbone and branches together              | 43 s           |
-| bernulli | branches with learned confidence (Pomponi)  | 358 s          |
-
-With the 50 epochs of their configuration this is about 36 minutes for joint and about 5 hours for
-bernulli on the Mac. The final evaluation of their script is also slow (about 14 minutes), because it
-runs the network again for every threshold.
 
 ## Block 2: multi exit ResNet20 on CIFAR
 
@@ -211,15 +213,15 @@ The regimes follow Kubaty et al. 2025, built from three phases:
 ### How to run
 
 ```bash
-bash scripts/download_cifar_c.sh                 # CIFAR-10-C and CIFAR-100-C, about 5.8 GB, md5 checked
+bash scripts/1_data/download_cifar_c.sh                 # CIFAR-10-C and CIFAR-100-C, about 5.8 GB, md5 checked
 # training: on Colab with notebooks/colab_training.ipynb (networks saved on Drive), or locally:
-python scripts/run_trainings.py --seeds 0 1 2 --jobs 1
+python scripts/3_training/run_trainings.py --seeds 0 1 2 --jobs 1
 # copy the folder outputs/cifar from Drive into outputs/cifar, then on the Mac:
-caffeinate -i bash scripts/export_all.sh         # val, test and CIFAR-C outputs of every network
-python scripts/first_look.py                     # accuracy per exit and a first check with Fast yet Safe
+caffeinate -i bash scripts/4_export/export_all.sh         # val, test and CIFAR-C outputs of every network
+python scripts/4_export/summarize_networks.py             # accuracy of every exit and AUROC of the exit scores
 pytest -rs
 # CIFAR-C features of a network of seed 1 or 2 (rewrites its whole preds/ folder and metrics.json):
-python scripts/export_outputs.py --run-dir outputs/cifar/cifar100/mixed/seed1 --features
+python scripts/4_export/export_outputs.py --run-dir outputs/cifar/cifar100/mixed/seed1 --features
 ```
 
 - **Training outputs:**
@@ -246,8 +248,9 @@ python scripts/export_outputs.py --run-dir outputs/cifar/cifar100/mixed/seed1 --
 
 ### Results of block 2
 
-All numbers are on the test set, averaged over the 3 seeds. They come from `metrics.json` and from
-`python scripts/first_look.py`, which also writes `outputs/cifar/first_look_*.csv` and `first_look.png`.
+All numbers are on the test set, averaged over the 3 seeds. They come from `metrics.json` through
+`python scripts/4_export/summarize_networks.py`, which also writes `outputs/cifar/summary_*.csv`. How the savings change under
+shift is in block 3.
 
 **Accuracy per exit, clean test set.** The standard deviation over seeds is at most 0.03, and 0.04 at exit 4 of
 CIFAR100 disjoint (a head with α < 0, see Model).
@@ -296,37 +299,14 @@ CIFAR100 disjoint (a head with α < 0, see Model).
 - **Early exits lose fewer points.** In absolute points the early exits lose less than exit 9 (not always in relative
   terms). With strong noise at severity 5, exit 1 can even be more accurate than exit 9.
 
-**First look at Fast yet Safe under shift** (UCB, consistency risk, ε = 0.05, δ = 0.1, max softmax).
-- **Setup.**
-  - λ is calibrated on 5,000 clean test images and kept fixed, on 100 random splits.
-  - Risk and savings are measured on the other 5,000 images, clean and corrupted (15 standard corruptions).
-  - "Violations" is the fraction of (corruption, split) pairs with risk above ε.
-
-| dataset | regime | clean risk / savings | severity 1 | severity 3 | severity 5 | violations at severity 5 |
-|---|---|---|---|---|---|---|
-| CIFAR10 | joint | 0.044 / 0.580 | 0.063 / 0.502 | 0.082 / 0.425 | 0.122 / 0.378 | 0.93 |
-| CIFAR10 | disjoint | 0.043 / 0.380 | 0.072 / 0.328 | 0.094 / 0.280 | 0.145 / 0.268 | 0.95 |
-| CIFAR10 | mixed | 0.044 / 0.565 | 0.067 / 0.491 | 0.096 / 0.415 | 0.151 / 0.364 | 0.89 |
-| CIFAR10 | joint_sd | 0.044 / 0.590 | 0.061 / 0.514 | 0.073 / 0.434 | 0.097 / 0.379 | 0.93 |
-| CIFAR100 | joint | 0.043 / 0.248 | 0.046 / 0.187 | 0.051 / 0.139 | 0.062 / 0.118 | 0.56 |
-| CIFAR100 | disjoint | 0.043 / 0.153 | 0.053 / 0.117 | 0.064 / 0.091 | 0.088 / 0.084 | 0.69 |
-| CIFAR100 | mixed | 0.044 / 0.243 | 0.049 / 0.183 | 0.058 / 0.140 | 0.070 / 0.118 | 0.51 |
-| CIFAR100 | joint_sd | 0.043 / 0.302 | 0.046 / 0.237 | 0.050 / 0.178 | 0.063 / 0.156 | 0.56 |
-
-- **Clean data.** The guarantee holds: the risk is about 0.044, and the fraction of splits above ε is 0.05 to 0.10,
-  compatible with δ = 0.1 and 100 splits.
-- **Under shift, with λ fixed,** the risk goes above ε already at severity 1 on CIFAR10, and the savings go down. On
-  CIFAR10 joint they fall from 0.58 to 0.38 at severity 5. This is hypothesis H2 of the project document (with λ
-  fixed the risk goes above ε). Hypothesis H1 is about the savings at a fixed risk level, so it needs the best λ on
-  the shifted data: that is the week 4 analysis, with the decomposition over exits and valid savings only.
 - **Learned confidence units.** The units fitted on val ("label" target) are calibrated on average, but they separate
   correct from wrong predictions much worse than the max softmax.
-  - AUROC for "the exit is correct" on the clean test set, exits 1 to 8 (`first_look_auroc.csv`): 0.58 to 0.74 for
+  - AUROC for "the exit is correct" on the clean test set, exits 1 to 8 (`summary_auroc.csv`): 0.58 to 0.74 for
     the units, against 0.74 to 0.91 for the max softmax.
   - Adding the logits of the head as a linear input would not help, because they are a linear function of the same
     features. The unit needs nonlinear scores of the head output, such as max softmax, margin or entropy, or a small
     nonlinear model.
-  - This is a week 4 item. It can be refitted from the saved logits and features without a new export.
+  - Block 3 uses such scores (`scores.py`).
 
 ## Block 3: savings under shift at a fixed risk level (week 4)
 
@@ -361,9 +341,9 @@ the consistency risk must stay below ε. It also runs the week 4 test on the ada
 
   In a check on one network (CIFAR100 joint, seed 0, exits 1, 4 and 7), adding the pooled features to those
   statistics did not raise the AUROC.
-- **Code.** `python scripts/week4_savings.py` writes `outputs/week4/results.csv`, one row per network, score, ε,
+- **Code.** `python scripts/5_savings_under_shift/savings_under_shift.py` writes `outputs/savings_under_shift/results.csv`, one row per network, score, ε,
   method, corruption, severity and split. It takes about 2 hours on the Mac with 8 processes (the 30 W charger
-  allows about 4). `python scripts/week4_figures.py` makes the tables and the figures below.
+  allows about 4). `python scripts/5_savings_under_shift/savings_figures.py` makes the tables and the figures below.
 
 ### How much the savings fall
 
@@ -382,7 +362,7 @@ the M2 value plus the gain of M8b over M2 measured on seed 0, on the same splits
 | CIFAR100 | mixed | 0.24 | 0.13 / 0.17 | 0.08 / 0.12 / 0.14 | 0.05 / 0.09 / 0.13 |
 | CIFAR100 | joint_sd | 0.29 | 0.19 / 0.23 | 0.11 / 0.17 / 0.19 | 0.07 / 0.13 / 0.19 |
 
-![savings against severity](docs/figures/week4_methods.png)
+![savings against severity](docs/figures/savings_by_method.png)
 
 - **The risk control of Fast yet Safe breaks under shift (H2).** With the clean λ kept (M1), the consistency risk
   averaged over the networks grows with the severity.
@@ -402,7 +382,7 @@ the M2 value plus the gain of M8b over M2 measured on seed 0, on the same splits
 
 ### Where the savings go (H1)
 
-![drop by exit](docs/figures/week4_decomposition.png)
+![drop by exit](docs/figures/savings_drop_by_exit.png)
 
 The drop from clean to M2 (severity 3 to 5, max softmax) splits into two parts:
 - **Shift at the clean λ.** The scores change, and fewer inputs pass λ. This is about 60% of the drop on CIFAR10
@@ -419,7 +399,7 @@ By exit:
 
 ### Exit scores (H3)
 
-![savings by exit score](docs/figures/week4_scores.png)
+![savings by exit score](docs/figures/savings_by_score.png)
 
 - **The four scores give similar savings.** On clean data and with M2 the difference is at most about 0.04.
 - **Under shift, the agreement score helps only for joint_sd.** M2 at severity 3 to 5 gives 0.35 against 0.32 with

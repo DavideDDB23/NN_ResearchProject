@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Download the precomputed logits released with Fast yet Safe (metodj/RC-EENN, img_cls/README.md)
 # into data/fys/<model>/<dataset>.p. ImageNet files are about 3.4 GB in total, CIFAR100 about 60 MB.
-# Usage: bash scripts/download_fys_logits.sh [imagenet|cifar100|all]
+# Usage: bash scripts/1_data/download_fys_logits.sh [imagenet|cifar100|all]
 set -euo pipefail
 
 which="${1:-all}"
-root="$(cd "$(dirname "$0")/.." && pwd)/data/fys"
+root="$(cd "$(dirname "$0")/../.." && pwd)/data/fys"
 
 declare -a files=(
   "1FZhXaSigCbzt6IzfSIGitKef0d1WehJO msdnet imagenet"

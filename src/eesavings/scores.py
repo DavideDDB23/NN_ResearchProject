@@ -5,8 +5,8 @@
 #   agreement    learned P(exit l agrees with exit 9), the target of the consistency risk; it needs no labels
 # The learned scores are one logistic regression per exit on three statistics of the head output (log top
 # probability, margin between the two top probabilities, entropy). A linear unit on the pooled features alone
-# separates correct and wrong predictions poorly (first_look_auroc.csv), and in a check on one network adding the
-# features to these statistics did not raise the AUROC.
+# separates correct and wrong predictions poorly (scripts/4_export/summarize_networks.py), and in a check on one network
+# adding the features to these statistics did not raise the AUROC.
 # The last exit always gets score 1: an input that reaches it exits there anyway.
 
 import numpy as np
@@ -16,7 +16,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from eesavings.export import confidence_targets
-from eesavings.risk.exits import softmax
+from eesavings.fys import softmax
 
 SCORES = ["max_softmax", "temperature", "label", "agreement"]
 

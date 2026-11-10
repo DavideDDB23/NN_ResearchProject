@@ -9,7 +9,7 @@ from eesavings.adaptation import adapt_heads, fit_head, head_logits, head_weight
 from eesavings.analysis import LAMBDAS, consistency_losses, make_splits, measure, ucb_index
 from eesavings.export import confidence_targets
 from eesavings.models import FEATURE_DIMS
-from eesavings.risk.calibration import ucb_lam
+from eesavings.fys import ucb_lam
 from eesavings.savings import cost_fractions, savings_from_exits
 from eesavings.scores import SCORES, exit_scores, fit_learned, fit_scores, fit_temperatures, output_statistics
 
@@ -131,18 +131,18 @@ def test_each_exit_gets_its_own_temperature():
 
 def load_script(name):
     import importlib.util
-    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / f"{name}.py")
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / "5_savings_under_shift" / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def test_week4_rows_use_the_right_rows_and_thresholds(tmp_path, monkeypatch):
+def test_savings_rows_use_the_right_rows_and_thresholds(tmp_path, monkeypatch):
     # a small fake network: which rows calibrate, which rows measure, and M1 reuses the clean lambda of its split
-    w4, figures = load_script("week4_savings"), load_script("week4_figures")
-    monkeypatch.setattr(w4, "CORRUPTIONS", ["fog"])
-    monkeypatch.setattr(w4, "SCORES", ["max_softmax"])
-    monkeypatch.setattr(w4, "EPSILONS", [0.05])
+    shift, figures = load_script("savings_under_shift"), load_script("savings_figures")
+    monkeypatch.setattr(shift, "CORRUPTIONS", ["fog"])
+    monkeypatch.setattr(shift, "SCORES", ["max_softmax"])
+    monkeypatch.setattr(shift, "EPSILONS", [0.05])
     preds = tmp_path / "preds"
     (preds / "cifar_c").mkdir(parents=True)
     def weak_logits(n, seed):
@@ -164,7 +164,7 @@ def test_week4_rows_use_the_right_rows_and_thresholds(tmp_path, monkeypatch):
     rows = []
     fractions = cost_fractions(np.arange(1, 10))
     splits = make_splits(2)
-    w4.calibration_rows(lambda m, s, e, c, sev, t, r: rows.append(
+    shift.calibration_rows(lambda m, s, e, c, sev, t, r: rows.append(
         {"dataset": "cifar10", "regime": "joint", "seed": 0, "method": m, "score": s, "eps": e, "corruption": c,
          "severity": sev, "split": t, **r}), str(preds), splits, fractions)
     df = pd.DataFrame(rows)

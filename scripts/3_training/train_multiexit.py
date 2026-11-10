@@ -3,8 +3,9 @@
 # disjoint and mixed of the same seed (they train it themselves if it is not there yet).
 #
 # Usage:
-#   python scripts/train_multiexit.py --dataset cifar100 --regime mixed --seed 0
-#   python scripts/train_multiexit.py --dataset cifar10 --regime joint --seed 0 --epochs 2 --limit 512 --out-dir /tmp/x
+#   python scripts/3_training/train_multiexit.py --dataset cifar100 --regime mixed --seed 0
+#   python scripts/3_training/train_multiexit.py --dataset cifar10 --regime joint --seed 0 --epochs 2 --limit 512 \
+#       --out-dir /tmp/x
 
 import argparse
 import json
@@ -48,7 +49,8 @@ def main():
     parser.add_argument("--data-dir", default="data")
     parser.add_argument("--out-dir", default="outputs/cifar")
     parser.add_argument("--device", default=default_device())
-    parser.add_argument("--limit", type=int, default=None, help="use only the first N train and val images (quick checks)")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="use only the first N train and val images (quick checks)")
     args = parser.parse_args()
 
     backbone_dir = os.path.join(args.out_dir, args.dataset, "backbone", f"seed{args.seed}")

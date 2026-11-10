@@ -1,4 +1,5 @@
-# Tables and figures of week 4, from outputs/week4/results.csv (scripts/week4_savings.py).
+# Tables and figures of the savings under shift, from outputs/savings_under_shift/results.csv
+# (written by scripts/5_savings_under_shift/savings_under_shift.py).
 # Conventions:
 #   - savings of the calibrated methods (clean, M2, M8a, M8b) are their mean over splits: their risk is below eps
 #     with probability 1 - delta. M1 keeps the clean lambda, so its savings count only where its risk is below eps
@@ -8,7 +9,7 @@
 #     max softmax score (heads adapted, score not re-fitted) and with the agreement score (both re-fitted); the week 4
 #     criterion asks recovery >= 1/4 on at least half of the (corruption, severity >= 3) cases.
 #
-# Usage: python scripts/week4_figures.py [--results outputs/week4/results.csv]
+# Usage: python scripts/5_savings_under_shift/savings_figures.py [--results outputs/savings_under_shift/results.csv]
 
 import argparse
 import os
@@ -142,7 +143,7 @@ def recovery(df, score, min_drop=0.01):
     return m.assign(score=score)
 
 
-def week4_test(rec):
+def adaptation_test(rec):
     # criterion of the project document, on the (corruption, severity >= 3) cases with something to recover
     hard = rec[(rec.severity >= 3) & rec.recovery_M8b.notna()]
     rows = []
@@ -158,7 +159,7 @@ def week4_test(rec):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--results", default="outputs/week4/results.csv")
+    parser.add_argument("--results", default="outputs/savings_under_shift/results.csv")
     args = parser.parse_args()
     out = os.path.dirname(args.results)
     df = pd.read_csv(args.results, dtype={"l2": str})
@@ -169,19 +170,19 @@ def main():
     c = curves(df, "max_softmax", ["M1", "M2", "M8b"]).rename(columns={"method": "key"})
     grid_plot(c, ["M1", "M2", "M8b"], METHOD_LABELS,
               "Savings at ε = 0.05 under shift, max softmax score (mean over the 15 standard corruptions)",
-              f"{out}/week4_methods.png")
-    c.to_csv(f"{out}/week4_methods.csv", index=False)
+              f"{out}/savings_by_method.png")
+    c.to_csv(f"{out}/savings_by_method.csv", index=False)
 
     # 2) exit scores (H3): best savings without adaptation (M2) for every score
     s = pd.concat([curves(df, score, ["M2"]).assign(key=score) for score in SCORES])
     grid_plot(s, SCORES, {k: k for k in SCORES},
               "Savings at ε = 0.05 with λ recalibrated on the shifted data (M2), by exit score",
-              f"{out}/week4_scores.png")
-    s.to_csv(f"{out}/week4_scores.csv", index=False)
+              f"{out}/savings_by_score.png")
+    s.to_csv(f"{out}/savings_by_score.csv", index=False)
 
     # 3) where the savings go (H1): drop decomposed over the exits, severity 3 to 5, max softmax
     dec = decomposition(df)
-    dec.to_csv(f"{out}/week4_decomposition.csv", index=False)
+    dec.to_csv(f"{out}/savings_drop_by_exit.csv", index=False)
     fig, axes = plt.subplots(2, 4, figsize=(13, 5.6), sharex=True, sharey="row")
     for i, dataset in enumerate(DATASETS):
         for j, regime in enumerate(REGIMES):
@@ -202,14 +203,14 @@ def main():
     fig.suptitle("Where the savings go: drop from clean to M2 by exit, severity 3 to 5, max softmax", fontsize=10,
                  color=TEXT, y=1.07)
     fig.tight_layout()
-    fig.savefig(f"{out}/week4_decomposition.png", dpi=150, bbox_inches="tight")
+    fig.savefig(f"{out}/savings_drop_by_exit.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
     # 4) the week 4 test on the adaptation (seed 0)
     rec = pd.concat([recovery(df, score) for score in ["max_softmax", "agreement"]])
-    rec.to_csv(f"{out}/week4_recovery.csv", index=False)
-    gate = pd.concat([week4_test(rec[rec.score == score]) for score in ["max_softmax", "agreement"]])
-    gate.to_csv(f"{out}/week4_gate.csv", index=False)
+    rec.to_csv(f"{out}/adaptation_recovery.csv", index=False)
+    gate = pd.concat([adaptation_test(rec[rec.score == score]) for score in ["max_softmax", "agreement"]])
+    gate.to_csv(f"{out}/adaptation_test.csv", index=False)
     m8a = df[(df.eps == EPS) & (df.score == "agreement") & df.method.isin(["M2", "M8a"]) & (df.severity >= 3)]
     m8a = m8a.groupby(["dataset", "method"]).savings.mean().unstack()
 

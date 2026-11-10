@@ -151,7 +151,8 @@ def test_every_regime_gets_the_same_budget(tmp_path):
     for regime in ["joint", "joint_sd", "disjoint", "mixed"]:
         train_regime(lambda: MultiExitResNet20(10), regime, train_loader, val_loader, 2, "cpu",
                      str(tmp_path / regime), str(tmp_path / "backbone"), seed=0)
-    rows = {r: len(pd.read_csv(tmp_path / r / "log.csv")) for r in ["joint", "joint_sd", "disjoint", "mixed", "backbone"]}
+    regimes = ["joint", "joint_sd", "disjoint", "mixed", "backbone"]
+    rows = {r: len(pd.read_csv(tmp_path / r / "log.csv")) for r in regimes}
     assert rows == {"joint": 4, "joint_sd": 4, "disjoint": 2, "mixed": 2, "backbone": 2}
     # the lr is divided at 50% and 75% of the phase, and a 2 epoch phase starts at lr 0.1
     lr = pd.read_csv(tmp_path / "joint" / "log.csv").lr.round(6).tolist()

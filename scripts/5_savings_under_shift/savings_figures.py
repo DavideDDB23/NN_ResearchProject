@@ -2,14 +2,20 @@
 # (written by scripts/5_savings_under_shift/savings_under_shift.py).
 # Conventions:
 #   - savings of the calibrated methods (clean, M2, M8a, M8b) are their mean over splits: their risk is below eps
-#     with probability 1 - delta. M1 keeps the clean lambda, so its savings count only where its risk is below eps
-#     ("valid savings", 0 otherwise); its raw savings are the illusory savings of the project document.
-#   - averages over the 15 standard corruptions; seeds averaged where all three are there (M8b: seed 0 only).
-#   - recovery = (S_M8b - S_M2) / (S_clean - S_M2), on seed 0 and eps = 0.05, per (corruption, severity), with the
-#     max softmax score (heads adapted, score not re-fitted) and with the agreement score (both re-fitted); the week 4
-#     criterion asks recovery >= 1/4 on at least half of the (corruption, severity >= 3) cases.
+#     with probability 1 - delta. M1 keeps the clean lambda: its savings are its gross savings, always shown next to
+#     its risk (risk_by_method.png), which is often above eps. The old "valid savings" (savings counted only where
+#     the risk is below eps, 0 otherwise) are only printed, as the old metric: they flip between 0 and the full
+#     value with the 3,000 eval rows.
+#   - averages over the 15 standard corruptions; seeds averaged where all three are there. M8b: the gain M8b - M2 is
+#     paired (same network, domain and split) and averaged over the seeds that have M8b rows.
+#   - recovery = (S_M8b - S_M2) / (S_clean - S_M2), at eps = 0.05, per (seed, corruption, severity), on every seed
+#     with M8b rows, with the max softmax score (heads adapted, score not re-fitted) and with the agreement score
+#     (both re-fitted); the week 4 criterion asks recovery >= 1/4 on at least half of the (corruption,
+#     severity >= 3) cases. It is reported for every seed and, when there are several, on all the (seed,
+#     corruption, severity >= 3) cases together.
 #
 # Usage: python scripts/5_savings_under_shift/savings_figures.py [--results outputs/savings_under_shift/results.csv]
+#        [--out-dir <folder>]   (default: the folder of --results)
 
 import argparse
 import os
@@ -29,8 +35,9 @@ DATASETS = ["cifar10", "cifar100"]
 # categorical colors in fixed order (reference palette of the dataviz guidelines)
 COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
 TEXT, MUTED, GRID = "#1f1f1e", "#6b6a64", "#e5e4df"
-METHOD_LABELS = {"M1": "M1 clean λ kept (valid savings only)", "M2": "M2 λ recalibrated on the shifted data",
-                 "M8b": "M8b heads adapted, then λ recalibrated (M2 + gain measured on seed 0)"}
+METHOD_LABELS = {"M1": "M1 clean λ kept (its risk is above ε, see the risk figure)",
+                 "M2": "M2 λ recalibrated on the shifted data",
+                 "M8b": "M8b heads adapted, then λ recalibrated (M2 + gain measured on {seeds})"}
 
 
 def style(ax):
@@ -43,17 +50,13 @@ def style(ax):
     ax.tick_params(colors=MUTED, labelsize=8)
 
 
-def savings_column(df):
-    # calibrated methods: mean savings; M1: valid savings
-    return np.where(df["method"] == "M1", df["valid_savings"], df["savings"])
-
-
-def curves(df, score, methods):
-    # mean savings against severity (0 = clean) for every (dataset, regime, method), over all seeds.
-    # M8b exists only for seed 0 and 3 splits, so its curve is the M2 curve plus the gain of M8b over M2 measured
-    # on seed 0 and on the same splits (a paired difference, not two numbers from different networks).
+def curves(df, score, methods, column="savings"):
+    # mean savings (or risk, with column="risk") against severity (0 = clean) for every (dataset, regime, method),
+    # over all seeds. M8b exists only for 3 splits and maybe not for every seed, so its curve is the M2 curve plus
+    # the gain of M8b over M2 measured on the seeds and splits of M8b (a paired difference, not two numbers from
+    # different networks).
     d = df[(df.eps == EPS) & (df.score == score)].copy()
-    d["value"] = savings_column(d)
+    d["value"] = d[column]
     clean = d[d.method == "clean"].groupby(["dataset", "regime", "seed"]).value.mean()
     rows = []
     for method in [m for m in methods if m != "M8b"]:
@@ -73,17 +76,29 @@ def curves(df, score, methods):
 
 
 def paired_gain(df, score):
-    # mean of M8b - M2 on seed 0 and on the splits of M8b, by (dataset, regime, severity)
-    d = df[(df.eps == EPS) & (df.score == score) & (df.seed == 0)]
-    d = d[d.split.isin(d[d.method == "M8b"].split.unique())]
-    key = ["dataset", "regime", "corruption", "severity", "split"]
+    # mean of M8b - M2 by (dataset, regime, severity): every M8b row is paired with the M2 row of the same network
+    # (seed), domain and split, so the mean is over the seeds and splits that have M8b
+    d = df[(df.eps == EPS) & (df.score == score)]
+    key = ["dataset", "regime", "seed", "corruption", "severity", "split"]
     m8b = d[d.method == "M8b"].set_index(key).savings
     m2 = d[d.method == "M2"].set_index(key).savings
     gain = (m8b - m2.reindex(m8b.index)).reset_index(name="gain")
     return gain.groupby(["dataset", "regime", "severity"]).gain.mean().reset_index()
 
 
-def grid_plot(table, series, labels, title, path, ylabel="savings at ε = 0.05"):
+def m8b_seeds(df):
+    # how many seeds the gain of M8b is measured on, for the label of the figure
+    n = df[df.method == "M8b"].groupby(["dataset", "regime"]).seed.nunique()
+    seeds = sorted(df[df.method == "M8b"].seed.unique())
+    if len(seeds) == 1:
+        return f"1 seed (seed {seeds[0]})"
+    if n.min() < n.max():
+        return f"{n.min()} to {n.max()} seeds per network"
+    return f"{len(seeds)} seeds ({', '.join(str(s) for s in seeds)})"
+
+
+def grid_plot(table, series, labels, title, path, ylabel="savings at ε = 0.05", eps_line=False):
+    # eps_line: a dashed horizontal line at eps (for the risk)
     fig, axes = plt.subplots(2, 4, figsize=(13, 5.6), sharex=True, sharey="row")
     for i, dataset in enumerate(DATASETS):
         for j, regime in enumerate(REGIMES):
@@ -93,13 +108,15 @@ def grid_plot(table, series, labels, title, path, ylabel="savings at ε = 0.05")
                 d = table[(table.dataset == dataset) & (table.regime == regime) & (table.key == s)]
                 ax.plot(d.severity, d.value, color=COLORS[k], lw=2, marker="o", ms=4, label=labels[s])
             ax.axhline(0, color=MUTED, lw=0.8)
+            if eps_line:
+                ax.axhline(EPS, color=TEXT, lw=1, ls="--", label=f"ε = {EPS}")
             ax.set_title(f"{dataset.upper()} · {regime}", fontsize=9, color=TEXT)
             if j == 0:
                 ax.set_ylabel(ylabel, fontsize=8, color=TEXT)
             if i == 1:
                 ax.set_xlabel("severity (0 = clean)", fontsize=8, color=TEXT)
     handles, names = axes[0, 0].get_legend_handles_labels()
-    fig.legend(handles, names, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=len(series), frameon=False,
+    fig.legend(handles, names, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles), frameon=False,
                fontsize=8)
     fig.suptitle(title, fontsize=10, color=TEXT, y=1.07)
     fig.tight_layout()
@@ -130,28 +147,35 @@ def decomposition(df, score="max_softmax", severities=(3, 4, 5)):
 
 
 def recovery(df, score, min_drop=0.01):
-    # seed 0, eps 0.05, on the splits of M8b: per (dataset, regime, corruption, severity) drop = S_clean - S_M2
-    # and recovery = (S_M8b - S_M2) / drop; cases with drop < min_drop have nothing to recover
-    d = df[(df.seed == 0) & (df.score == score) & (df.eps == EPS)]
-    d = d[d.split.isin(d[d.method == "M8b"].split.unique())]
-    clean = d[d.method == "clean"].groupby(["dataset", "regime"]).savings.mean()
-    m = d[d.method.isin(["M2", "M8b"])].groupby(["dataset", "regime", "corruption", "severity", "method"])
+    # eps 0.05, on the networks (seeds) and splits of M8b: per (dataset, regime, seed, corruption, severity)
+    # drop = S_clean - S_M2 and recovery = (S_M8b - S_M2) / drop; cases with drop < min_drop have nothing to recover
+    d = df[(df.score == score) & (df.eps == EPS)]
+    runs = ["dataset", "regime", "seed", "split"]
+    d = d.merge(d[d.method == "M8b"][runs].drop_duplicates(), on=runs)  # inner merge, keeps the order of d
+    clean = d[d.method == "clean"].groupby(["dataset", "regime", "seed"]).savings.mean()
+    m = d[d.method.isin(["M2", "M8b"])].groupby(["dataset", "regime", "seed", "corruption", "severity", "method"])
     m = m.savings.mean().unstack("method").reset_index()
-    m["clean"] = [clean[a, b] for a, b in zip(m.dataset, m.regime)]
+    m["clean"] = [clean[a, b, s] for a, b, s in zip(m.dataset, m.regime, m.seed)]
     m["drop"] = m.clean - m.M2
     m["recovery_M8b"] = np.where(m["drop"] >= min_drop, (m.M8b - m.M2) / m["drop"], np.nan)
     return m.assign(score=score)
 
 
 def adaptation_test(rec):
-    # criterion of the project document, on the (corruption, severity >= 3) cases with something to recover
+    # criterion of the project document, on the (corruption, severity >= 3) cases with something to recover:
+    # for every seed with M8b and, when there are several, on all the (seed, corruption, severity) cases together
+    # ("all"). Same definition and same threshold for both.
     hard = rec[(rec.severity >= 3) & rec.recovery_M8b.notna()]
     rows = []
     for (dataset, regime), g in hard.groupby(["dataset", "regime"]):
-        rows.append({"score": g.score.iloc[0], "dataset": dataset, "regime": regime, "cases": len(g),
-                     "drop": g["drop"].mean(), "gain_M8b": (g.M8b - g.M2).mean(),
-                     "median_recovery_M8b": g.recovery_M8b.median(),
-                     "share_recovering_a_quarter": (g.recovery_M8b >= 0.25).mean()})
+        groups = [(str(seed), s) for seed, s in g.groupby("seed")]
+        if g.seed.nunique() > 1:
+            groups.append(("all", g))
+        for seed, s in groups:
+            rows.append({"score": s.score.iloc[0], "dataset": dataset, "regime": regime, "seed": seed,
+                         "cases": len(s), "drop": s["drop"].mean(), "gain_M8b": (s.M8b - s.M2).mean(),
+                         "median_recovery_M8b": s.recovery_M8b.median(),
+                         "share_recovering_a_quarter": (s.recovery_M8b >= 0.25).mean()})
     table = pd.DataFrame(rows)
     table["passes"] = table.share_recovering_a_quarter >= 0.5
     return table
@@ -160,18 +184,27 @@ def adaptation_test(rec):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--results", default="outputs/savings_under_shift/results.csv")
+    parser.add_argument("--out-dir", default=None,
+                        help="where tables and figures go (default: the folder of --results)")
     args = parser.parse_args()
-    out = os.path.dirname(args.results)
+    out = args.out_dir or os.path.dirname(args.results)
+    os.makedirs(out, exist_ok=True)
     df = pd.read_csv(args.results, dtype={"l2": str})
     pd.set_option("display.width", 220)
 
     # 1) the answer to the first question: savings against severity, for every method (max softmax, as in
-    #    Fast yet Safe)
+    #    Fast yet Safe); M1 with its gross savings, and its risk in a second figure
     c = curves(df, "max_softmax", ["M1", "M2", "M8b"]).rename(columns={"method": "key"})
-    grid_plot(c, ["M1", "M2", "M8b"], METHOD_LABELS,
+    labels = {**METHOD_LABELS, "M8b": METHOD_LABELS["M8b"].format(seeds=m8b_seeds(df))}
+    grid_plot(c, ["M1", "M2", "M8b"], labels,
               "Savings at ε = 0.05 under shift, max softmax score (mean over the 15 standard corruptions)",
               f"{out}/savings_by_method.png")
     c.to_csv(f"{out}/savings_by_method.csv", index=False)
+    r = curves(df, "max_softmax", ["M1", "M2"], column="risk").rename(columns={"method": "key"})
+    grid_plot(r, ["M1", "M2"], {"M1": "M1 clean λ kept", "M2": "M2 λ recalibrated on the shifted data"},
+              "Consistency risk at ε = 0.05 under shift, max softmax score (mean over the 15 standard corruptions)",
+              f"{out}/risk_by_method.png", ylabel="risk on the eval rows", eps_line=True)
+    r.to_csv(f"{out}/risk_by_method.csv", index=False)
 
     # 2) exit scores (H3): best savings without adaptation (M2) for every score
     s = pd.concat([curves(df, score, ["M2"]).assign(key=score) for score in SCORES])
@@ -206,7 +239,7 @@ def main():
     fig.savefig(f"{out}/savings_drop_by_exit.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
-    # 4) the week 4 test on the adaptation (seed 0)
+    # 4) the week 4 test on the adaptation (every seed with M8b, and all of them together)
     rec = pd.concat([recovery(df, score) for score in ["max_softmax", "agreement"]])
     rec.to_csv(f"{out}/adaptation_recovery.csv", index=False)
     gate = pd.concat([adaptation_test(rec[rec.score == score]) for score in ["max_softmax", "agreement"]])
@@ -217,7 +250,16 @@ def main():
     # printed tables, rounded, for the README
     table = c[c.severity.isin([0, 1, 3, 5])].pivot_table(index=["dataset", "regime"], columns=["key", "severity"],
                                                           values="value")
-    print("\nSavings at eps = 0.05 (max softmax) by method and severity:\n", table.round(3).to_string())
+    print("\nSavings at eps = 0.05 (max softmax) by method and severity (M1 gross; M8b = M2 + gain measured on "
+          f"{m8b_seeds(df)}):\n", table.round(3).to_string())
+    m1 = df[(df.eps == EPS) & (df.score == "max_softmax") & (df.method == "M1") & df.severity.isin([1, 3, 5])]
+    m1 = m1.assign(above_eps=m1.risk > EPS).groupby(["dataset", "regime", "severity"]).agg(
+        savings=("savings", "mean"), risk=("risk", "mean"), above_eps=("above_eps", "mean"),
+        valid_savings_old_metric=("valid_savings", "mean"))
+    m1.to_csv(f"{out}/m1_savings_and_risk.csv")
+    print("\nM1 (clean lambda kept, max softmax, eps = 0.05): gross savings, mean risk on the eval rows, share of the "
+          "cases (seed, corruption, split) with risk above eps, and the old metric (valid savings: savings counted "
+          "only where the risk is below eps):\n", m1.unstack("severity").round(3).to_string())
     m2 = s[s.severity.isin([0, 3, 5])].pivot_table(index=["dataset", "regime"], columns=["key", "severity"],
                                                    values="value")
     print("\nM2 savings by exit score:\n", m2.round(3).to_string())
@@ -226,7 +268,8 @@ def main():
     groups = dec.assign(group=pd.cut(dec.exit, [0, 3, 6, 9], labels=["exits 1-3", "exits 4-6", "exits 7-9"]))
     print("\nDrop by group of exits (severity 3-5, max softmax):\n",
           groups.groupby(["dataset", "regime", "group"], observed=True)["drop"].sum().unstack().round(3).to_string())
-    print("\nWeek 4 test on the adaptation (seed 0, severity >= 3):\n", gate.round(3).to_string(index=False))
+    print("\nWeek 4 test on the adaptation (severity >= 3; by seed with M8b, and 'all' = the seeds together when "
+          "there are several):\n", gate.round(3).to_string(index=False))
     print("\nRe-fitting only the agreement score (M8a) against M2, severity >= 3:\n", m8a.round(3).to_string())
     l2 = df[(df.method == "M8b") & (df.score == "max_softmax")].l2.str.split(" ", expand=True).astype(float)
     print("\nL2 strength chosen for the adapted heads (share of heads, by exit):\n",

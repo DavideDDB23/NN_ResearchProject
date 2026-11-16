@@ -6,12 +6,14 @@ import torch.nn.functional as F
 
 from conftest import ROOT, synthetic_logits
 from eesavings.adaptation import adapt_heads, fit_head, head_logits, head_weights
-from eesavings.analysis import LAMBDAS, consistency_losses, make_splits, measure, ucb_index
+from eesavings.analysis import (LAMBDAS, consistency_losses, make_splits, measure, ucb_index, ucb_index_fast,
+                                wsr_log_capital)
 from eesavings.export import confidence_targets
-from eesavings.models import FEATURE_DIMS
-from eesavings.fys import ucb_lam
+from eesavings.models import FEATURE_DIMS, MultiExitResNet20
+from eesavings.fys import ucb_lam, ucb_wsr
 from eesavings.savings import cost_fractions, savings_from_exits
 from eesavings.scores import SCORES, exit_scores, fit_learned, fit_scores, fit_temperatures, output_statistics
+from eesavings.train import load_model
 
 RUN = ROOT / "outputs" / "cifar" / "cifar10" / "joint" / "seed0"
 
@@ -67,6 +69,35 @@ def test_ucb_index_makes_the_same_choice_as_fast_yet_safe():
         assert ucb_index(losses, eps, 0.1) == ucb_lam(losses, eps, 0.1)
 
 
+def non_monotone_losses(rng, trials=20):
+    # rows that pass and rows that fail alternate, and row 0 is sometimes unsafe
+    matrices = []
+    for trial in range(trials):
+        risk = rng.uniform(0, 0.3, size=30)
+        if trial % 4 == 0:
+            risk[0] = 0.9
+        matrices.append((rng.random((30, 400)) < risk[:, None]).astype(float))
+    return matrices
+
+
+def test_ucb_index_matches_fast_yet_safe_when_the_risk_is_not_monotone():
+    for losses in non_monotone_losses(np.random.default_rng(0)):
+        for eps in [0.02, 0.05, 0.1, 0.2]:
+            assert ucb_index(losses, eps, 0.1) == ucb_lam(losses, eps, 0.1)
+
+
+def test_fast_ucb_index_makes_the_same_choice_as_ucb_index():
+    # one evaluation of the log capital at eps instead of the root search of ucb_wsr
+    rng = np.random.default_rng(1)
+    monotone = (rng.random((60, 2000)) < np.linspace(0, 0.3, 60)[:, None]).astype(float)
+    for losses in [monotone] + non_monotone_losses(rng):
+        ucb = np.array([ucb_wsr(row, delta=0.1) for row in losses])
+        for eps in [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]:
+            assert ucb_index_fast(losses, eps, 0.1) == ucb_index(losses, eps, 0.1)
+            # row by row: "ucb_wsr < eps" is the same as "log capital at eps > 0"
+            assert np.array_equal(wsr_log_capital(losses, eps, 0.1) > 0, ucb < eps)
+
+
 def test_measure():
     f = cost_fractions([1, 2, 3, 4])
     losses = np.array([[0, 0, 0, 0], [1, 0, 0, 0]], dtype=float)
@@ -110,6 +141,26 @@ def test_cached_features_and_head_weights_give_the_saved_logits():
     recomputed = head_logits(features, weights, biases)
     assert np.allclose(recomputed, saved, atol=2e-2, rtol=1e-2)  # features are float16
     assert np.mean(recomputed.argmax(axis=2) == saved.argmax(axis=2)) > 0.999
+
+
+@pytest.mark.skipif(not (RUN / "preds" / "cifar_c" / "frost_features.npy").exists()
+                    or not (ROOT / "data" / "CIFAR-10-C" / "frost.npy").exists(),
+                    reason="saved CIFAR-C features or CIFAR-10-C not present")
+def test_features_computed_again_are_the_saved_ones(monkeypatch):
+    # --recompute-features of savings_under_shift.py: 200 images of frost (40 per severity) through model.pt give
+    # the features saved by the export
+    shift = load_script("savings_under_shift")
+    images, labels = shift.load_cifar_c("cifar10", "frost", str(ROOT / "data"))
+    monkeypatch.setattr(shift, "load_cifar_c", lambda dataset, corruption, data_dir: (images[:, :40], labels))
+    monkeypatch.setattr(shift, "N_TEST", 40)
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    model = load_model(MultiExitResNet20(10), RUN / "model.pt").to(device).eval()
+    new = shift.corruption_features(model, "cifar10", "frost", "data", device)
+    saved = np.load(RUN / "preds" / "cifar_c" / "frost_features.npy", mmap_mode="r")[:, :40]
+    assert new.shape == saved.shape == (5, 40, sum(FEATURE_DIMS)) and new.dtype == saved.dtype
+    assert np.allclose(new.astype(np.float32), saved.astype(np.float32), atol=2e-2, rtol=1e-2)
+    if device == "mps":  # the export ran on mps: the same forward gives the same bits
+        assert np.array_equal(new, saved)
 
 
 def test_each_exit_gets_its_own_temperature():

@@ -46,6 +46,37 @@ def test_the_bound_holds_with_probability_one_minus_delta():
     assert violations / 200 <= delta
 
 
+def test_the_bound_holds_against_an_adversary_that_uses_the_history():
+    # it disagrees only after an input that was not audited; audits always at the lowest probability
+    eps, gamma, pi, T, delta = 0.05, 0.01, 0.05, 5000, 0.1
+    bound = long_run_bound(T, eps, gamma, pi, delta)
+    violations = 0
+    for seed in range(200):
+        rng = np.random.default_rng(seed)
+        lam, previous_audited, total = 0.5, True, 0
+        for t in range(T):
+            z = int(not previous_audited) if lam < 1 else 0
+            audited = rng.random() < pi
+            total += z
+            lam = controller_step(lam, audited, z, pi, eps, gamma)
+            previous_audited = audited
+        violations += total / T > bound
+    assert violations / 200 <= delta
+
+
+def test_the_bound_fails_if_the_adversary_sees_the_audit_coin():
+    # condition 1 broken on purpose: the test must be able to tell a wrong bound
+    eps, gamma, pi, T, delta = 0.05, 0.01, 0.05, 5000, 0.1
+    rng = np.random.default_rng(0)
+    lam, total = 0.5, 0
+    for t in range(T):
+        audited = rng.random() < pi
+        z = int(not audited) if lam < 1 else 0
+        total += z
+        lam = controller_step(lam, audited, z, pi, eps, gamma)
+    assert total / T > long_run_bound(T, eps, gamma, pi, delta)
+
+
 def test_size_of_the_terms_in_the_project_document():
     # pi = 0.05, delta = 0.1: the martingale term is about 3 points after 1e5 inputs and about 1 after 1e6
     for T, expected in [(1e5, 0.030), (1e6, 0.0094)]:

@@ -6,17 +6,28 @@
 #   M2     lambda calibrated again on the cal rows of the corrupted images (S*_Q with the trained heads)
 # and, at eps = 0.05 with the "agreement" score:
 #   M8a    the agreement score re-fitted on the adapt rows of the corrupted images, then M2
-#   M8b    (seed 0, whose CIFAR-C features are saved) the linear layers of the heads re-fitted by distillation
-#          towards exit 9 on 3,000 adapt rows (adaptation.adapt_heads, L2 chosen on the other 1,000), the agreement
-#          score re-fitted on those 1,000 held-out rows (on the rows used to fit the heads it would be overconfident),
-#          then M2. The adapted heads are also measured with the max softmax score, which needs no re-fit: that
-#          isolates the effect of the heads from the effect of re-fitting the score (M8a).
+#   M8b    (seed 0, whose CIFAR-C features are saved; the other seeds with --recompute-features) the linear layers
+#          of the heads re-fitted by distillation towards exit 9 on 3,000 adapt rows (adaptation.adapt_heads, L2
+#          chosen on the other 1,000), the agreement score re-fitted on those 1,000 held-out rows (on the rows used
+#          to fit the heads it would be overconfident), then M2. The adapted heads are also measured with the max
+#          softmax score, which needs no re-fit: that isolates the effect of the heads from the effect of re-fitting
+#          the score (M8a).
 # Only the 15 standard corruptions. One row per (network, score, eps, method, corruption, severity, split):
 # one file per network in outputs/savings_under_shift/runs/ (networks already done are skipped, unless --force),
 # all together in outputs/savings_under_shift/results.csv. savings_figures.py makes the tables and figures.
 #
+# --only-adaptation computes only M8b for networks already done and replaces their M8b rows; networks whose file
+# already has M8b rows are skipped (unless --force), so an interrupted job starts again where it stopped.
+# --recompute-features: the features of CIFAR-C are saved only for seed 0 (export_outputs.py --features, 8 GB per
+# network). With this option the features of a corruption whose file is missing are computed again from model.pt,
+# one corruption at a time, on mps if there is one (nothing is written in outputs/cifar).
+#
 # Usage: python scripts/5_savings_under_shift/savings_under_shift.py [--workers 8] [--trials 5] [--adapt-trials 3]
-#        [--runs ...] [--force] [--only-adaptation]
+#        [--runs ...] [--force] [--only-adaptation] [--recompute-features] [--data-dir data]
+# M8b on seeds 1 and 2 without touching outputs/savings_under_shift: copy outputs/savings_under_shift/runs/*.csv
+# to outputs/savings_under_shift_v2/runs/, then
+#   python scripts/5_savings_under_shift/savings_under_shift.py --results outputs/savings_under_shift_v2/results.csv
+#          --only-adaptation --recompute-features --workers 4 --runs outputs/cifar/*/*/seed1 outputs/cifar/*/*/seed2
 
 import argparse
 import glob
@@ -30,10 +41,12 @@ import torch
 
 from eesavings.adaptation import L2_GRID, adapt_heads, head_logits, head_weights
 from eesavings.analysis import consistency_losses, make_splits, measure, ucb_index
-from eesavings.data.cifar import CORRUPTIONS, SEVERITIES
-from eesavings.export import confidence_targets
+from eesavings.data.cifar import CORRUPTIONS, N_TEST, NUM_CLASSES, SEVERITIES, load_cifar_c
+from eesavings.export import confidence_targets, predict
+from eesavings.models import FEATURE_DIMS, MultiExitResNet20
 from eesavings.savings import RESNET20_EXIT_MACS, RESNET20_FULL_MACS, cost_fractions
 from eesavings.scores import SCORES, exit_scores, fit_learned, fit_scores
+from eesavings.train import load_model
 
 EPSILONS = [0.02, 0.05, 0.1]
 EPS_ADAPT = 0.05
@@ -89,13 +102,33 @@ def calibration_rows(add, preds, splits, fractions):
         print(preds, corruption, "calibration done", flush=True)
 
 
-def adaptation_rows(add, run_dir, preds, splits, fractions):
+def corruption_features(model, dataset, corruption, data_dir, device):
+    # the features of one corruption computed again, as export_outputs.py --features saves them:
+    # (5, 10000, 4352) float16. One severity at a time to keep the memory low; the batches of predict are the same
+    # as in the export, because 10,000 is a multiple of its batch size.
+    images, _ = load_cifar_c(dataset, corruption, data_dir)  # (5, 10000, 32, 32, 3)
+    features = np.zeros((len(images), N_TEST, sum(FEATURE_DIMS)), dtype=np.float16)
+    for s in range(len(images)):
+        features[s] = predict(model, images[s], dataset, device, return_features=True)[2].astype(np.float16)
+    return features
+
+
+def adaptation_rows(add, run_dir, preds, splits, fractions, dataset=None, data_dir=None):
     # M8b: heads adapted on the adapt rows (no labels), then lambda calibrated again; with the agreement score
     # re-fitted on the held-out adapt rows, and with the max softmax score. The chosen L2 strengths are kept.
+    # With data_dir, the features of a corruption that were not saved are computed again from model.pt.
     weights, biases = head_weights(torch.load(f"{run_dir}/model.pt", map_location="cpu", weights_only=True))
+    model = None
     for corruption in CORRUPTIONS:
         logits_c = np.load(f"{preds}/cifar_c/{corruption}_logits.npy", mmap_mode="r")
-        features_c = np.load(f"{preds}/cifar_c/{corruption}_features.npy", mmap_mode="r")
+        saved = f"{preds}/cifar_c/{corruption}_features.npy"
+        if os.path.exists(saved) or data_dir is None:
+            features_c = np.load(saved, mmap_mode="r")
+        else:
+            if model is None:
+                device = "mps" if torch.backends.mps.is_available() else "cpu"
+                model = load_model(MultiExitResNet20(NUM_CLASSES[dataset]), f"{run_dir}/model.pt").to(device).eval()
+            features_c = corruption_features(model, dataset, corruption, data_dir, device)
         for severity in SEVERITIES:
             logits, features = np.asarray(logits_c[severity - 1]), np.asarray(features_c[severity - 1])
             for t, (adapt, cal, ev) in enumerate(splits):
@@ -117,8 +150,8 @@ def adaptation_rows(add, run_dir, preds, splits, fractions):
 
 def analyse_run(job):
     # only_adaptation: compute only M8b and replace the M8b rows of the file of this network (the other methods
-    # do not change), a much lighter run
-    run_dir, n_trials, n_adapt_trials, runs_dir, only_adaptation = job
+    # do not change), a much lighter run. data_dir: None, or where CIFAR-C is (--recompute-features)
+    run_dir, n_trials, n_adapt_trials, runs_dir, only_adaptation, data_dir = job
     torch.set_num_threads(1)  # several networks run in parallel processes
     dataset, regime, seed = run_dir.split(os.sep)[-3:]
     info = {"dataset": dataset, "regime": regime, "seed": int(seed[4:])}
@@ -133,15 +166,23 @@ def analyse_run(job):
 
     if not only_adaptation:
         calibration_rows(add, preds, splits, fractions)
-    if os.path.exists(f"{preds}/cifar_c/{CORRUPTIONS[0]}_features.npy"):  # only seed 0 has the features
-        adaptation_rows(add, run_dir, preds, splits[:n_adapt_trials], fractions)
+    # only seed 0 has the features saved; the others need --recompute-features
+    if data_dir is not None or os.path.exists(f"{preds}/cifar_c/{CORRUPTIONS[0]}_features.npy"):
+        adaptation_rows(add, run_dir, preds, splits[:n_adapt_trials], fractions, dataset, data_dir)
 
     new = pd.DataFrame(rows)
     if only_adaptation:
         old = pd.read_csv(run_file(runs_dir, run_dir))
         new = pd.concat([old[old.method != "M8b"], new], ignore_index=True)
-    new.to_csv(run_file(runs_dir, run_dir), index=False)
+    # written to a temporary file first, so an interrupted job never leaves a half written file
+    path = run_file(runs_dir, run_dir)
+    new.to_csv(path + ".tmp", index=False)
+    os.replace(path + ".tmp", path)
     return run_dir
+
+
+def has_adaptation_rows(path):
+    return (pd.read_csv(path, usecols=["method"]).method == "M8b").any()
 
 
 def main():
@@ -154,7 +195,11 @@ def main():
     parser.add_argument("--runs", nargs="*", default=None, help="only these run folders (default: all exported)")
     parser.add_argument("--force", action="store_true", help="analyse again networks already done")
     parser.add_argument("--only-adaptation", action="store_true",
-                        help="recompute only M8b for networks already done, keeping their other rows")
+                        help="compute only M8b for networks already done, keeping their other rows; networks "
+                             "that already have M8b rows are skipped, unless --force")
+    parser.add_argument("--recompute-features", action="store_true",
+                        help="compute again from model.pt the CIFAR-C features that were not saved (M8b)")
+    parser.add_argument("--data-dir", default="data", help="where CIFAR-10-C and CIFAR-100-C are")
     args = parser.parse_args()
 
     run_dirs = args.runs or sorted(os.path.dirname(p) for p in glob.glob(f"{args.out_dir}/*/*/seed*/metrics.json"))
@@ -162,13 +207,14 @@ def main():
     os.makedirs(runs_dir, exist_ok=True)
     done = [r for r in run_dirs if os.path.exists(run_file(runs_dir, r))]
     if args.only_adaptation:
-        todo = done
+        todo = [r for r in done if args.force or not has_adaptation_rows(run_file(runs_dir, r))]
     else:
         todo = [r for r in run_dirs if args.force or r not in done]
+    data_dir = args.data_dir if args.recompute_features else None
     print(len(todo), "networks to analyse", "(M8b only)" if args.only_adaptation else "")
     with Pool(args.workers) as pool:
-        pool.map(analyse_run, [(r, args.trials, args.adapt_trials, runs_dir, args.only_adaptation) for r in todo],
-                 chunksize=1)
+        pool.map(analyse_run, [(r, args.trials, args.adapt_trials, runs_dir, args.only_adaptation, data_dir)
+                               for r in todo], chunksize=1)
     files = sorted(glob.glob(f"{runs_dir}/*.csv"))
     df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
     df.to_csv(args.results, index=False)

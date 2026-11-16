@@ -5,7 +5,8 @@
 #   eval (3,000)          where risk, savings and the distribution over the exits are measured
 # Methods of the project document:
 #   M1  lambda calibrated on clean data and kept fixed (Fast yet Safe, static)
-#   M2  lambda calibrated again on the new domain: the best savings without adaptation
+#   M2  lambda calibrated again on the new domain: an optimistic reference without adaptation (the domain is known
+#       and 3,000 full forwards are spent on it)
 #   M8  heads or scores re-fitted on the adapt rows of the new domain, then lambda calibrated again
 
 import numpy as np
@@ -43,6 +44,29 @@ def ucb_index(cal_losses, eps, delta):
         if ucb_wsr(cal_losses[k], delta=delta) >= eps:
             return max(0, k - 1)
     return len(cal_losses) - 1
+
+
+def wsr_log_capital(losses, mu, delta):
+    # _Kn(mu) of fys.ucb_wsr for every row of losses (K, n) at once: the log of the capital of the bet against
+    # "the mean of the row is mu", minus log(1 / delta). Returns an array of shape (K,).
+    x = np.asarray(losses, dtype=np.float64)
+    n = x.shape[1]
+    t = np.arange(1, n + 1)
+    muhat = (np.cumsum(x, axis=1) + 0.5) / (1 + t)
+    sigma2 = (np.cumsum((x - muhat) ** 2, axis=1) + 0.25) / (1 + t)
+    sigma2 = np.concatenate([np.full((len(x), 1), 0.25), sigma2[:, :-1]], axis=1)  # shifted by one, as in ucb_wsr
+    nu = np.minimum(np.sqrt(2 * np.log(1 / delta) / n / sigma2), 1.0)
+    return np.max(np.cumsum(np.log(1 - nu * (x - mu)), axis=1), axis=1) + np.log(delta)
+
+
+def ucb_index_fast(cal_losses, eps, delta):
+    # same choice as ucb_index, about 5 times faster. ucb_wsr finds the root of _Kn(mu) with brentq, but
+    # "ucb_wsr(x) < eps" is the same as "_Kn(eps) > 0", because _Kn grows with mu: one evaluation at eps is enough
+    # instead of the root search, and it is done for all the lambdas at once.
+    fail = np.flatnonzero(~(wsr_log_capital(cal_losses, eps, delta) > 0))
+    if len(fail) == 0:
+        return len(cal_losses) - 1
+    return max(0, fail[0] - 1)
 
 
 def measure(losses, exits, k, rows, fractions, eps):

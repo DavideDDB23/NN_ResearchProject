@@ -42,7 +42,9 @@ git -C third_party/ConfidenceBranchNetwok checkout 405d273
   - `2_fys_reproduction` reproduces Fast yet Safe (block 1);
   - `3_training` trains the networks;
   - `4_export` saves their outputs and summarizes them;
-  - `5_savings_under_shift` measures the savings under shift at a fixed risk level (week 4 of the plan).
+  - `5_savings_under_shift` measures the savings under shift at a fixed risk level (week 4 of the plan);
+  - `6_block3_review` checks block 3 again: intervals, validity of M2 over 100 splits, calibration budget, the two
+    orders of the decomposition, the reference, the cost of the adaptation (review of 11 to 13 November).
 - **`tests/`** has one test file per module.
 
 A suggested reading order, from the basics to the last block:
@@ -61,8 +63,9 @@ A suggested reading order, from the basics to the last block:
 | 10 | `src/eesavings/analysis.py` | splits, UCB choice of λ, risk and savings on a set of rows | 3 |
 | 11 | `src/eesavings/adaptation.py` | offline adaptation of the heads by distillation towards exit 9 | 3 |
 | 12 | `scripts/5_savings_under_shift/savings_under_shift.py`, `scripts/5_savings_under_shift/savings_figures.py` | savings under shift at a fixed risk level, and their tables and figures | 3 |
-| 13 | `src/eesavings/controller.py`, `docs/controller_bound.md` | threshold controller with random audits and its bound | weeks 5-7 |
-| 14 | `docs/findings.md` | log of everything found so far, block by block | all |
+| 13 | `scripts/6_block3_review/` | review of block 3: intervals, validity of M2, calibration budget, reference, cost of the adaptation | 3 |
+| 14 | `src/eesavings/controller.py`, `docs/controller_bound.md` | threshold controller with random audits and its bound | weeks 5-7 |
+| 15 | `docs/findings.md` | log of everything found so far, block by block | all |
 
 - **Block 1 only:**
   - `src/eesavings/data/fys_logits.py` reads the logits released with Fast yet Safe;
@@ -175,8 +178,10 @@ The regimes follow Kubaty et al. 2025, built from three phases:
   (1 − α)·CE + α·τ²·KL(teacher ‖ exit), with α = 0.5, τ = 3, and the teacher detached. This regime is our addition:
   it is not in Kubaty et al. The loss follows Zhang et al. 2019 (T = 3) and the τ² factor of Hinton et al. 2015 and
   Phuong and Lampert 2019.
-- **Budget.** Every regime gets the same total budget, as in Kubaty's `scripts/regimes_resnet.py`: 160 epochs per phase,
-  320 for joint and joint_sd. Phase 1 is shared by disjoint and mixed of the same seed.
+- **Budget.** Every regime gets the same total budget: 160 epochs per phase, 320 for joint and joint_sd. In Kubaty's
+  `scripts/regimes_resnet.py` the regimes also have the same nominal cap, but there early stopping decides the real
+  length, which differs between the regimes: their paper reports 523, 1610 and 1166 epochs on average for disjoint,
+  joint and mixed (ResNet-50 on TinyImageNet). Phase 1 is shared by disjoint and mixed of the same seed.
 - **Recipe of He et al. 2016 in every phase:**
   - SGD, lr 0.1, momentum 0.9, weight decay 1e-4, batch 128;
   - lr divided by 10 at 50% and 75% of the phase;
@@ -325,14 +330,17 @@ the consistency risk must stay below ε. It also runs the week 4 test on the ada
   We use 5 splits, and 3 of them for the adaptation of the heads.
 - **Methods** of the project document:
   - **clean.** λ calibrated and measured on clean images.
-  - **M1.** The clean λ kept on the corrupted images, as Fast yet Safe does. Its savings count only where its risk
-    stays below ε ("valid savings").
-  - **M2.** λ calibrated again on the corrupted images: the best savings without adaptation.
+  - **M1.** The clean λ kept on the corrupted images, as Fast yet Safe does. Its savings are reported as they are
+    (gross), together with its risk, because under shift the risk is no longer controlled.
+  - **M2.** λ calibrated again on 3,000 images of the corrupted domain, which is assumed to be known. It is an
+    optimistic reference without adaptation, and its calibration cost is not subtracted.
   - **M8a.** Only the agreement score re-fitted on the adaptation rows, then M2.
-  - **M8b.** Offline adaptation of the heads (`adaptation.py`), then M2. It needs no labels. Backbone, exit 9 and α
+  - **M8b.** Offline adaptation of the heads (`adaptation.py`), then M2. It needs no labels, but it needs 7,000 full
+    forwards on the new domain (4,000 to adapt and 3,000 to calibrate). Backbone, exit 9 and α
     stay fixed. The linear layer of each head is re-fitted by distillation towards exit 9 on 3,000 adaptation rows,
     starting from the trained weights, with an L2 pull towards them chosen on the other 1,000 rows from
-    1e-4, 1e-3, 1e-2, 0.1 and 1. Only seed 0, whose CIFAR-C features are saved.
+    1e-4, 1e-3, 1e-2, 0.1 and 1. The CIFAR-C features are saved only for seed 0: for seeds 1 and 2 they are
+    computed again from `model.pt` (`--recompute-features`).
 - **Exit scores** (`scores.py`):
   - max softmax, as in Fast yet Safe;
   - per-exit temperature scaling;
@@ -343,40 +351,73 @@ the consistency risk must stay below ε. It also runs the week 4 test on the ada
   statistics did not raise the AUROC.
 - **Code.** `python scripts/5_savings_under_shift/savings_under_shift.py` writes `outputs/savings_under_shift/results.csv`, one row per network, score, ε,
   method, corruption, severity and split. It takes about 2 hours on the Mac with 8 processes (the 30 W charger
-  allows about 4). `python scripts/5_savings_under_shift/savings_figures.py` makes the tables and the figures below.
+  allows about 4).
+  - **M8b on seeds 1 and 2** was run apart, on a copy of the per-network files, with
+    `--only-adaptation --recompute-features --results outputs/savings_under_shift_v2/results.csv`. That file has the
+    same 230,040 rows plus 7,200 M8b rows, and `outputs/savings_under_shift/` is not touched. The recomputed
+    features use MPS: with 4 workers the battery fell from 80% to 30% in 2.5 hours, so the run was finished with 2.
+  - **Tables and figures.**
+    `python scripts/5_savings_under_shift/savings_figures.py --results outputs/savings_under_shift_v2/results.csv --out-dir <folder>`
+    makes the tables and the figures below.
 
 ### How much the savings fall
 
 Savings at ε = 0.05 with the max softmax score, mean over the 15 corruptions and the 3 seeds. At severity 0 all
-methods coincide. Each cell gives M1 (valid) / M2, then M1 / M2 / M8b. M8b is run only on seed 0, so its value is
-the M2 value plus the gain of M8b over M2 measured on seed 0, on the same splits.
+methods coincide. Each cell gives M1 / M2, then M1 / M2 / M8b. The M1 value is its gross savings: they come with a
+risk that is often above ε, given in the second table. M8b is run on 3 of the 5 splits, so its value is the M2 value
+plus the gain of M8b over M2 measured on those 3 splits, mean over the 3 seeds.
 
 | dataset | regime | clean | severity 1: M1 / M2 | severity 3: M1 / M2 / M8b | severity 5: M1 / M2 / M8b |
 |---|---|---|---|---|---|
-| CIFAR10 | joint | 0.58 | 0.21 / 0.46 | 0.11 / 0.35 / 0.39 | 0.02 / 0.25 / 0.33 |
-| CIFAR10 | disjoint | 0.38 | 0.11 / 0.28 | 0.03 / 0.20 / 0.25 | 0.01 / 0.14 / 0.21 |
-| CIFAR10 | mixed | 0.56 | 0.25 / 0.45 | 0.09 / 0.33 / 0.37 | 0.02 / 0.22 / 0.31 |
-| CIFAR10 | joint_sd | 0.58 | 0.24 / 0.47 | 0.11 / 0.36 / 0.42 | 0.04 / 0.27 / 0.38 |
-| CIFAR100 | joint | 0.24 | 0.14 / 0.18 | 0.08 / 0.13 / 0.15 | 0.04 / 0.10 / 0.14 |
-| CIFAR100 | disjoint | 0.15 | 0.07 / 0.10 | 0.04 / 0.07 / 0.08 | 0.01 / 0.05 / 0.07 |
-| CIFAR100 | mixed | 0.24 | 0.13 / 0.17 | 0.08 / 0.12 / 0.14 | 0.05 / 0.09 / 0.13 |
-| CIFAR100 | joint_sd | 0.29 | 0.19 / 0.23 | 0.11 / 0.17 / 0.19 | 0.07 / 0.13 / 0.19 |
+| CIFAR10 | joint | 0.58 | 0.50 / 0.46 | 0.42 / 0.35 / 0.39 | 0.38 / 0.25 / 0.32 |
+| CIFAR10 | disjoint | 0.38 | 0.33 / 0.28 | 0.28 / 0.20 / 0.25 | 0.27 / 0.14 / 0.21 |
+| CIFAR10 | mixed | 0.56 | 0.49 / 0.45 | 0.41 / 0.33 / 0.37 | 0.36 / 0.22 / 0.30 |
+| CIFAR10 | joint_sd | 0.58 | 0.51 / 0.47 | 0.43 / 0.36 / 0.42 | 0.37 / 0.27 / 0.36 |
+| CIFAR100 | joint | 0.24 | 0.18 / 0.18 | 0.14 / 0.13 / 0.15 | 0.12 / 0.10 / 0.15 |
+| CIFAR100 | disjoint | 0.15 | 0.12 / 0.10 | 0.09 / 0.07 / 0.08 | 0.09 / 0.05 / 0.07 |
+| CIFAR100 | mixed | 0.24 | 0.18 / 0.17 | 0.14 / 0.12 / 0.14 | 0.11 / 0.09 / 0.13 |
+| CIFAR100 | joint_sd | 0.29 | 0.23 / 0.23 | 0.17 / 0.17 / 0.19 | 0.15 / 0.13 / 0.19 |
 
 ![savings against severity](docs/figures/savings_by_method.png)
+
+M1 at the same severities: mean risk on the eval rows / share of the (seed, corruption, split) cases with a risk above
+ε.
+
+| dataset | regime | severity 1 | severity 3 | severity 5 |
+|---|---|---|---|---|
+| CIFAR10 | joint | 0.063 / 60% | 0.082 / 73% | 0.122 / 92% |
+| CIFAR10 | disjoint | 0.074 / 68% | 0.096 / 90% | 0.147 / 95% |
+| CIFAR10 | mixed | 0.064 / 50% | 0.093 / 77% | 0.146 / 88% |
+| CIFAR10 | joint_sd | 0.059 / 55% | 0.071 / 75% | 0.094 / 87% |
+| CIFAR100 | joint | 0.044 / 24% | 0.050 / 42% | 0.060 / 55% |
+| CIFAR100 | disjoint | 0.054 / 45% | 0.065 / 52% | 0.090 / 71% |
+| CIFAR100 | mixed | 0.047 / 30% | 0.056 / 39% | 0.068 / 49% |
+| CIFAR100 | joint_sd | 0.044 / 19% | 0.048 / 35% | 0.060 / 46% |
+
+![risk against severity](docs/figures/risk_by_method.png)
 
 - **The risk control of Fast yet Safe breaks under shift (H2).** With the clean λ kept (M1), the consistency risk
   averaged over the networks grows with the severity.
   - On CIFAR10 it goes from 0.065 at severity 1 to 0.127 at severity 5, and 58% to 90% of the
     (network, corruption, split) cases go above ε.
   - On CIFAR100 it goes from 0.048 to 0.070, with 29% to 55% of the cases above ε.
-  - The raw savings of M1 stay high (0.35 on CIFAR10 at severity 5), but they are illusory: once the cases that
-    break the risk control are discarded, almost nothing is left.
+  - The gross savings of M1 stay high (0.46 on CIFAR10 at severity 1 and 0.35 at severity 5, mean over the regimes),
+    but they are bought with a risk above ε: M1 breaks the risk control in 58% to 90% of the cases on CIFAR10. It does
+    not always break it: at severity 1, 42% of the CIFAR10 cases are still below ε.
+  - An earlier version of this table gave the "valid savings" of M1, its savings counted only where its risk is below
+    ε (0.01 to 0.25). That metric is fragile: 12% to 43% of the M1 cases have a risk within two standard errors of ε,
+    so it depends on the eval sample. It is kept only in `m1_savings_and_risk.csv` and in the `valid_savings` column
+    of `results.csv`.
 - **With λ calibrated again (M2) the guarantee holds and the savings fall less.** With the max softmax score the
   cases above ε are 8% to 11%, around δ = 0.1. The small excess comes from measuring the risk on 3,000 rows: only
-  about 1% of the cases are above ε by more than two standard errors. Still, at severity 3 only 59% of the clean savings are left on CIFAR10 and 53% on CIFAR100
-  (ε = 0.05). The share left grows with ε: on CIFAR10 it is 53% at ε = 0.02 and 65% at ε = 0.1.
+  about 1% of the cases are above ε by more than two standard errors. With 100 splits per domain, the λ of M2 has a
+  risk above ε in 6.7% (CIFAR10) and 5.7% (CIFAR100) of the calibrations when the risk is measured on the 7,000 rows
+  outside the calibration. Still, at severity 3 only 59% of the clean savings are left on CIFAR10 and 53% on CIFAR100
+  (ε = 0.05; 95% intervals: 56% to 62% and 50% to 56%). Between the corruptions it goes from 41% for glass blur to
+  95% for brightness on CIFAR10. The share left grows with ε: on CIFAR10 it is 53% at ε = 0.02 and 65% at ε = 0.1.
 - **The regime matters.**
-  - joint_sd keeps the most savings under shift, then joint and mixed.
+  - On CIFAR100 joint_sd keeps the most savings under shift (+0.036 over joint, on all three seeds). On CIFAR10 the
+    difference (+0.011) is inside the spread of the seeds.
   - disjoint has the lowest savings everywhere and loses the most in relative terms on CIFAR10.
   - CIFAR100 starts from much lower savings (0.15 to 0.29) because its early exits are less accurate.
 
@@ -385,10 +426,9 @@ the M2 value plus the gain of M8b over M2 measured on seed 0, on the same splits
 ![drop by exit](docs/figures/savings_drop_by_exit.png)
 
 The drop from clean to M2 (severity 3 to 5, max softmax) splits into two parts:
-- **Shift at the clean λ.** The scores change, and fewer inputs pass λ. This is about 60% of the drop on CIFAR10
-  and 85% on CIFAR100.
-- **Change of λ.** λ must rise to bring the risk back below ε. This is the remaining 40% on CIFAR10 and 15% on
-  CIFAR100.
+- **Shift at the clean λ.** The scores change, and fewer inputs pass λ. This is 61% to 71% of the drop on CIFAR10 and
+  85% to 88% on CIFAR100, depending on which of the two steps is taken first.
+- **Change of λ.** λ must rise to bring the risk back below ε. This is the rest.
 
 By exit:
 - **CIFAR10, regimes that train the whole network.** Almost all the loss comes from exits 1 to 3: 0.24 to 0.26 of a
@@ -407,37 +447,54 @@ By exit:
   only in part.
 - **Re-fitting the agreement score on the shifted data costs savings (M8a).** It gives 0.255 against 0.272 for M2 on
   CIFAR10, and 0.098 against 0.110 on CIFAR100.
-  - **Reason.** A well calibrated P(agreement) with one shared λ treats all exits alike, while an early exit saves
-    more.
+  - **Likely reason.** A well calibrated P(agreement) with one shared λ treats all exits alike, while an early exit
+    saves more. With M8a fewer inputs leave at exits 1 to 4 and more at exits 5 to 8, in all 24 networks (17% against
+    24% and 60% against 46% on CIFAR10, severity 3 to 5).
   - **Consequence.** The clean scores, more confident at the early exits, end up giving more savings.
 
 ### Week 4 test on the adaptation
 
-Seed 0, ε = 0.05, max softmax score, (corruption, severity ≥ 3) cases. The definitions:
+The three seeds, ε = 0.05, max softmax score, (corruption, severity ≥ 3) cases: 45 for each seed. The definitions:
 - **Drop:** clean savings minus M2 savings.
 - **Gain:** M8b savings minus M2 savings.
 - **Recovery:** gain divided by drop.
 - **The criterion of the project document:** recovery ≥ 1/4 on at least half of the cases.
 
-| dataset | regime | mean drop | mean gain of M8b | median recovery | cases recovering ≥ 1/4 | passes |
-|---|---|---|---|---|---|---|
-| CIFAR10 | joint | 0.274 | 0.058 | 0.17 | 0.22 | no |
-| CIFAR10 | disjoint | 0.219 | 0.058 | 0.23 | 0.38 | no |
-| CIFAR10 | mixed | 0.289 | 0.061 | 0.20 | 0.29 | no |
-| CIFAR10 | joint_sd | 0.288 | 0.082 | 0.25 | 0.53 | yes |
-| CIFAR100 | joint | 0.130 | 0.034 | 0.21 | 0.36 | no |
-| CIFAR100 | disjoint | 0.087 | 0.013 | 0.11 | 0.16 | no |
-| CIFAR100 | mixed | 0.136 | 0.030 | 0.14 | 0.33 | no |
-| CIFAR100 | joint_sd | 0.137 | 0.039 | 0.22 | 0.36 | no |
+Drop, gain and median recovery are over the three seeds together. The share of the cases that recover at least 1/4
+is given for each seed and for the three together, and the verdict for each seed.
+
+| dataset | regime | mean drop | mean gain of M8b | median recovery | cases recovering ≥ 1/4: seed 0 / 1 / 2 | together | passes: seed 0 / 1 / 2 |
+|---|---|---|---|---|---|---|---|
+| CIFAR10 | joint | 0.281 | 0.053 | 0.16 | 0.22 / 0.22 / 0.22 | 0.22 | no / no / no |
+| CIFAR10 | disjoint | 0.209 | 0.055 | 0.22 | 0.38 / 0.36 / 0.44 | 0.39 | no / no / no |
+| CIFAR10 | mixed | 0.290 | 0.057 | 0.17 | 0.29 / 0.20 / 0.18 | 0.22 | no / no / no |
+| CIFAR10 | joint_sd | 0.269 | 0.072 | 0.25 | 0.53 / 0.49 / 0.60 | 0.54 | yes / no / yes |
+| CIFAR100 | joint | 0.126 | 0.037 | 0.22 | 0.36 / 0.42 / 0.42 | 0.40 | no / no / no |
+| CIFAR100 | disjoint | 0.089 | 0.013 | 0.11 | 0.16 / 0.04 / 0.04 | 0.08 | no / no / no |
+| CIFAR100 | mixed | 0.128 | 0.030 | 0.18 | 0.33 / 0.33 / 0.29 | 0.32 | no / no / no |
+| CIFAR100 | joint_sd | 0.145 | 0.041 | 0.22 | 0.36 / 0.42 / 0.31 | 0.36 | no / no / no |
 
 - **What adapting the heads gives.** With only unlabeled data and the full network as teacher, it recovers a
-  median of 11% to 25% of the lost savings. The gain grows with the severity: at severity 5 it is +0.08 on CIFAR10
-  joint (0.25 becomes 0.33) and +0.11 on CIFAR10 joint_sd.
-- **The L2 strength is chosen inside the grid** for 97% of the heads, mostly 0.01 or 0.1. A first run with only
-  three values (1e-3, 1e-2, 0.1) often picked an edge, but it gave the same verdict and median recoveries within
-  0.01.
-- **The criterion passes in 1 of the 8 settings** (CIFAR10 joint_sd). With the agreement score re-fitted together
-  with the heads it passes in none, because of the M8a effect above.
+  median of 11% to 25% of the lost savings, before counting its compute.
+  - The gain is the same on the three seeds: 0.047, 0.043 and 0.044 of savings (mean over the 8 settings), with a
+    spread between the seeds of 0.003.
+  - It grows with the severity: at severity 5 it is +0.07 on CIFAR10 joint (0.25 becomes 0.32) and +0.09 on CIFAR10
+    joint_sd.
+- **What it costs.** Training the heads takes the compute of about 2,600 full forwards on CIFAR10 and 30,900 on
+  CIFAR100 (mean of three domains, joint, seed 0). At severity 3 the gain pays this back, with the extra cost of the
+  4,000 adaptation inputs, after about 81,000 and 1.7 million inputs of the same domain
+  (`scripts/6_block3_review/adaptation_cost.py`).
+- **The L2 strength is chosen inside the grid** for 97% to 98% of the heads on every seed, mostly 0.01 or 0.1. A
+  first run on seed 0 with only three values (1e-3, 1e-2, 0.1) often picked an edge, but it gave the same verdict
+  and median recoveries within 0.01.
+- **The criterion is not met.** CIFAR10 joint_sd is at the line on every seed: 0.53, 0.49 and 0.60 of the cases
+  recover a quarter of the drop, 0.54 on the three seeds together (on seed 0 alone the 95% interval is 0.36 to 0.71).
+  No other setting passes on any seed. With the agreement score re-fitted together with the heads no setting passes,
+  because of the M8a effect above.
+- **M8b keeps the guarantee as M2 does.** The adaptation rows fit the heads, so only the 3,000 eval rows can measure
+  its risk. On the same cases the risk of M8b is above ε in 10.2% of them and the risk of M2 in 10.7%: a difference
+  of −0.005, with a 95% interval from −0.022 to +0.013. Both are above ε by more than two standard errors in about 1%
+  of the cases.
 - **Two things learned on the way.**
   - The heads overfit the adaptation rows if they are not pulled back towards their trained weights.
   - The score must be fitted on rows the heads did not see, otherwise it is overconfident and UCB lets no input exit.
@@ -446,8 +503,23 @@ Seed 0, ε = 0.05, max softmax score, (corruption, severity ≥ 3) cases. The de
   adaptation phase is reported with its measured limits. The online weeks will show whether its gain pays its audit
   cost. This decision is to be discussed with the professor.
 
+### Review of this block (11 to 13 November)
+
+This block was checked again before the next one, and the full list of findings is in `docs/findings.md` (section
+"Review of blocks 1 to 3"). The scripts are in `scripts/6_block3_review/` and write to `outputs/block3_review/`.
+
+- **M2 is valid, but it is an optimistic reference.** It knows the domain and spends 3,000 full forwards on it: over
+  10,000 inputs its net savings are about 30% lower.
+- **Exit 9 is a weak reference where the whole network is trained.** In the disagreements on clean CIFAR100 the
+  early exit is right in 46% to 50% and exit 9 in 28% to 31% (joint, mixed, disjoint; joint_sd: 39% and 38%).
+- **Fewer calibration rows, lower savings.** On clean CIFAR10 M2 saves 0.526 with 3,000 rows and 0.403 with 100. CRC
+  hardly depends on the number of rows, but it controls the risk only on average.
+- **No latency has been measured yet.**
+
 ### Controller bound (week 1)
 
 `docs/controller_bound.md` proves the long-run bound of the threshold controller under the four conditions of the
 project document. It is an adaptation of Kiyani et al. 2026 and Gibbs et al. 2026, with Freedman's inequality.
-`tests/test_controller.py` checks it on simulated adversarial and drifting streams.
+`tests/test_controller.py` checks it on a worst case stream, on a drifting stream and on adaptive adversaries. The
+bound is loose on the horizons of CIFAR: with ε = 0.05 and π = 0.05 it is 0.156 after 10,000 inputs and 0.081 after
+100,000.

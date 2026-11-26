@@ -1,0 +1,13 @@
+Righe proposte per la tabella Cosa è fatto del documento di progetto, dalla più recente. Ogni riga ha tre linee, nell'ordine data, cosa, esito.
+
+15 novembre 2026
+Latenza reale degli early exit a batch 1
+Ho misurato il tempo vero dell'inferenza early exit a batch 1 su CPU e su MPS. Su CPU resta in tempo tra il 14% e il 57% dei savings in MAC, e su CIFAR100 sotto shift l'early exit è più lento della rete intera. I primi blocchi lavorano a piena risoluzione con pochi canali e costano tre quarti del tempo con un terzo dei MAC. Su MPS ogni exit aggiunge circa 0,4 ms e l'early exit è sempre più lento della rete intera. Riporterei i savings in MAC insieme alla latenza e proverei un modello compilato e la scala ImageNet.
+
+15 novembre 2026
+Shift naturale CIFAR-10.1
+Su CIFAR-10.1 l'accuracy finale scende di circa 9,5 punti. La soglia calibrata sul pulito porta il rischio a 0,066, quindi la garanzia si rompe anche con uno shift naturale. I savings certificati restano il 74% di quelli sul pulito, e il controller online arriva ai savings della soglia migliore. Le mappe sui logit invece non recuperano nulla. Su questo shift non c'è uno spostamento sistematico per classe da correggere.
+
+15 novembre 2026
+Conferma sulle quattro corruzioni extra
+Ho ripetuto la parte online sulle quattro corruzioni di CIFAR-C mai usate, a metodi congelati e con le previsioni scritte prima. Il controller resta entro 0,006 dalla soglia migliore. La fase di adattamento pesata recupera tra il 13% e il 17% del calo dei savings, quanto le mappe stimate con accesso al dominio nuovo. La protezione riporta il rischio del ritorno al pulito a quello del controller da solo.

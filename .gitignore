@@ -1,9 +1,19 @@
 # data, results and external code stay out of git
 # (the leading / means only the folders in the repository root, not src/eesavings/data/)
 /data/
-/outputs/
 /third_party/
 /checkpoints/
+
+# results stay out of git, except Claude's working folder outputs/fable_review/ (pilots, online streams, phase D,
+# lab notebook and reports), which was lost with the old Mac on 26 November 2026 because it was ignored.
+# Inside it the heavy parts stay out: caches, trial runs, downloaded data, logs and zip files.
+/outputs/*
+!/outputs/fable_review/
+/outputs/fable_review/**/cache*/
+/outputs/fable_review/**/smoke/
+/outputs/fable_review/fase_d/data/
+/outputs/fable_review/**/*.log
+/outputs/fable_review/**/*.zip
 
 # python
 __pycache__/

@@ -1,0 +1,25 @@
+Righe proposte per la tabella Cosa è fatto del documento di progetto, dalla più recente. Ogni riga ha tre linee, nell'ordine data, cosa, esito.
+
+15 novembre 2026
+Protezione dopo l'adattamento, parte online
+Un rilevatore senza label confronta la distribuzione delle probabilità del primo exit con quella del momento in cui la fase ha stimato le mappe. Quando il dominio cambia toglie le mappe e rimette la soglia di prima, entro poche centinaia di input. Al ritorno al pulito il rischio sull'intero stream torna a quello del controller da solo, 0,050 su CIFAR10 e 0,048 su CIFAR100, contro 0,057 e 0,062 senza protezione. Quando il dominio resta scatta per errore al più nel 2% dei casi e il guadagno della fase rimane. Con shift ripetuti però la fase singola si paga senza ripagarsi.
+
+15 novembre 2026
+Quando il dominio cambia ancora, parte online
+Dopo un adattamento il sistema è tarato sul dominio nuovo, e il cambio successivo diventa un nuovo shift. Con uno stream che torna al pulito il controller da solo resta sotto il rischio ammesso. I metodi adattati salgono tra 0,07 e 0,08 su CIFAR10 e tra 0,11 e 0,14 su CIFAR100 nei primi mille input, e restano sopra il 5% per migliaia di input. Con tre corruzioni di fila il rischio medio dei metodi adattati è circa 0,068 contro 0,058 del controller da solo su CIFAR10, e 0,075 contro 0,053 su CIFAR100. Prima di raccomandare un adattamento dove gli shift si ripetono serve una protezione che tolga le mappe quando il dominio cambia.
+
+15 novembre 2026
+Fit pesato delle mappe nella fase di adattamento
+Le mappe sui logit funzionano tanto meglio quanto più le righe su cui le stimo rappresentano il dominio. Pesando ogni riga con l'inverso della probabilità di essere osservata, la fase con audit al 25% guadagna il 18% in più su CIFAR10 e il 29% in più su CIFAR100. È quasi quanto completare tutti gli input, allo stesso costo e con lo stesso rischio. La fase si ripaga entro 30.000 input nel 52% e nel 70% dei casi. È la versione che proporrei per la parte online.
+
+15 novembre 2026
+Fase di adattamento online e payback
+Su 24 reti la fase di adattamento con scala e bias per classe sui logit recupera a regime tra il 12% e il 16% dei savings persi sotto shift. È quasi quanto le stesse mappe stimate con accesso al dominio nuovo. Il costo sta negli audit in più e non nel training, che vale tra lo 0,1% e il 7% del costo. Su 30.000 input dopo lo shift la fase è in pareggio a severity 3 e guadagna tra 0,010 e 0,014 a severity 5. Ho trovato e corretto un errore nella ripartenza della soglia dopo la fase, che gonfiava i savings su CIFAR100, e ho rifatto tutti i metodi con adattamento.
+
+15 novembre 2026
+Controller della soglia senza label, parte online
+Un controller della soglia alimentato dal 5% degli input usciti presto, completati come audit, arriva ai savings della soglia migliore calibrata sul dominio nuovo a meno di 0,005. Su CIFAR100 la supera di poco. Il prezzo è il transitorio dopo lo shift, che su CIFAR10 dura circa 6.500 input con il rischio a 0,087 nei primi mille a severity 3. Una soglia fissa senza controller resta a 0,087 per sempre. Su 40.000 input il rischio medio sta sempre sotto il bound di lungo periodo.
+
+15 novembre 2026
+Sensibilità al tasso di audit e al passo del controller
+Il tasso di audit sposta i savings netti di circa quanto costano gli audit, più 0,011 con il 2% e meno 0,016 con il 10% su CIFAR10. Non cambia invece il guadagno della fase di adattamento. Il passo del controller decide la durata del transitorio, circa in proporzione inversa. Con un passo due volte e mezzo più grande il transitorio si dimezza e il rischio di lungo periodo scende, ma sul pulito il rischio oscilla di più.

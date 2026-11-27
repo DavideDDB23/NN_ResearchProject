@@ -40,7 +40,23 @@ file originali.
   scritti nella sessione locale dell'11-14 novembre, che non è recuperabile. Gli script di `parte1/` erano già stati
   portati nella repository in `scripts/6_block3_review/`.
 - `pilots/B2_adattamento/test_b2.py`: scritto dall'esecutore e mai stampato.
-- Tutti i risultati (CSV, log, `STATUS.txt`, cache, `fase_d/imagenet/out/`) e i dati: vanno rigenerati rieseguendo.
+- I risultati: rigenerati il 26 e 27 novembre (sezione sotto), tranne quelli della Fase D e dei job della Fase C che il
+  PDF non usa. Il primo run ImageNet (D.08) è perso; in `fase_d/imagenet/out/` ci sono quelli del secondo (D.10).
+
+## Riesecuzione del 26 e 27 novembre
+
+Tutto quello che sta dietro al documento inviato al professore è stato rieseguito sul Mac nuovo e torna uguale: le
+tabelle del README, i numeri del quaderno e del PDF, e le otto figure del PDF, identiche bit per bit agli originali.
+Dettagli nella voce R.01 del quaderno. Gli script della riesecuzione sono in `ricostruzione/`:
+- `chain_all.sh`, `chain_rest.sh`: export, blocco 3, M8b sui seed 1 e 2, revisione, pilot B1, B2 e B3;
+- `chain_fase_c_min.sh`: gli stream della Fase C usati nel PDF;
+- `chain_fase_c.sh`: la Fase C completa, compresi i job non rifatti (`gamma_clean`, `return`, `sens`, `weighted`,
+  `steps`, `mixed`, `w` di `run_c06.sh`); per rilanciarli basta toglierne l'attesa iniziale;
+- `battery_watchdog.sh`: mette in pausa i job sotto il 32% di batteria e li riprende sopra il 45%;
+- `replay.py` e `rebuild_quaderno.py`: la ricostruzione dei file dalle chiamate della sessione.
+
+Gli script scrivono i log in `outputs/logs/` (fuori da git) e saltano i passi già finiti, quindi si possono rilanciare.
+Vanno avviati staccati dalla sessione di Claude e con il Mac aperto: con il coperchio chiuso il Mac va in stop.
 
 ## Prima di rieseguire
 

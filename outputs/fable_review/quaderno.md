@@ -2027,3 +2027,75 @@ Scritta alle 11:26 del 16 novembre (ora letta da `date`: 11:24). Davide ha scelt
   casuali (script intero con un blocco di train finto) e sulla lettura dei nomi di train nei due formati (classi
   sconosciute scartate, mappa delle classi presa da val, sottoinsieme casuale). Non provati: l'archivio vero di train
   su Hugging Face (formato dei nomi e copertura delle classi) e i tempi su Colab.
+
+### D.10 (26 nov) ImageNet con teste allenate su ImageNet train: risultato
+
+Scritta alle 21:07 del 26 novembre (ora letta da `date`: 21:07), sul Mac nuovo dopo la ricostruzione.
+
+- **Esecuzione** (Davide, su Colab con `imagenet_minimo.ipynb` rigenerato da `make_notebook.py`; file del run tra le
+  19:53 e le 20:05 UTC, zip caricato alle 21:06). Tutti e sette i domini completati, fog e jpeg compression compresi.
+  Le teste si sono fermate tra la 12ª e la 15ª epoca. Risultati in `fase_d/imagenet/out/` (copiati dallo zip; quelli
+  del primo run di D.08 sono andati persi con il vecchio Mac), lettura in `imagenet_offline.log`.
+- **Teste.** Accuracy sulla metà di valutazione pulita, exit 1–9: 0,034, 0,065, 0,073, 0,156, 0,176, 0,213, 0,602,
+  0,674, 0,760 (in D.08: 0,023, 0,048, 0,051, 0,122, 0,135, 0,154, 0,521, 0,608, 0,759).
+- **Savings** (metà per calibrare, metà per valutare; ε 0,05).
+  - Pulito: M1 = M2 0,050 (rischio 0,050), oracolo 0,050. Gli exit 1–6 quasi non escono mai (0,1% all'exit 4);
+    34% all'exit 7, 28% all'8, 39% al 9.
+  - Sotto shift M2: 0,037 su ImageNet-V2 (74% del pulito), 0,015 su ImageNet-R (30%), da 0,014 a 0,028 sulle quattro
+    corruzioni a severity 3 (28–55%). M1 resta sotto ε ovunque (rischio da 0,017 a 0,047).
+  - In tempo, con le frazioni di D.06: M2 pulito +0,009 su CPU (il 18% dei savings in MAC) e −0,37 su MPS; sotto
+    shift negativo su entrambi.
+  - Mappe sui logit, alla soglia oracolo: da +0,011 a +0,026 fittate su metà del dominio; con 3.000 righe da +0,011 a
+    +0,021 sulle quattro corruzioni, +0,012 su ImageNet-V2 e +0,009 su ImageNet-R.
+- **Previsioni di D.09.** J1 giusta sugli exit 1 e 8, sbagliata sugli exit 4 e 6 (0,156 e 0,213 invece di 0,20–0,35 e
+  0,30–0,50). J2 sbagliata di poco: 0,050 invece di 0,06–0,15. J3 giusta: V2 al 74%, R e corruzioni tra il 28 e il 55%.
+  J4 sbagliata come in D.08: M1 non supera ε da nessuna parte. J5 sbagliata: in tempo resta il 18% dei savings in MAC
+  su CPU, non il 40–80%. J6 giusta su ogni corruzione, anche con 3.000 righe.
+- **Convinzione.** Con molte più immagini di train le teste lineari su feature globali migliorano di qualche punto, ma
+  i savings puliti passano solo dal 3 al 5%: gli exit utili restano quelli dei blocchi 14 e 15, che costano già il
+  90–95% dei MAC. Il calo relativo sotto shift ha però la stessa forma di CIFAR (dal 28 al 74% dei savings puliti
+  restano). Per una scala ImageNet che misuri savings veri serve un modello multi exit allenato per uscire presto, non
+  teste aggiunte a una ResNet50 congelata. Da decidere con Davide.
+
+### R.01 (27 nov) Ricostruzione dopo la perdita del Mac: riesecuzione e confronto con il PDF
+
+Scritta alle 16:55 del 27 novembre (ora letta da `date`: 16:55).
+
+- **Cosa è successo.** Il 26 novembre Davide ha perso il Mac. Su GitHub c'era il commit `fa4648a` del 16 novembre, e
+  `outputs/` era in `.gitignore`. Codice e documenti di questa cartella sono stati ricostruiti dalle chiamate della
+  sessione del 14–16 novembre (`RICOSTRUZIONE.md`, script in `ricostruzione/`), commit `fd74a39` sul branch
+  `claude/project-thread-51cfzd`. Le 24 network vengono da Google Drive. Il documento inviato al professore è in
+  `documenti/documento_prof_23novembre.md` (testo uguale al PDF) con il PDF.
+- **Ambiente.** Mac nuovo, Apple M5 e 16 GB come il vecchio, caricatore da 30 W. Miniforge in `~/miniforge3`,
+  ambiente `eesavings` con Python 3.11.18, torch 2.15.0, numpy 2.4.6, pandas 3.1.1, scikit-learn 1.9.1, scipy 1.17.1,
+  matplotlib 3.11.2.
+- **Riesecuzione** (dal 26 novembre alle 15:45 al 27 novembre alle 16:55; script in `ricostruzione/`, log in
+  `outputs/logs/`, fuori da git). Riproduzione di Fast yet Safe con 5 e 100 split; export delle 24 network (circa 1,5
+  minuti l'una); test (136 passati); `savings_under_shift.py` (230.040 righe) e M8b sui seed 1 e 2 (results v2, 237.240
+  righe); tabelle e figure del blocco 3; script della revisione tranne `reference_check.py`; pilot B1, B2 (BN, teste
+  sugli split 0 e 1, `b2_mech.py`, `b2_mech24.py`) e B3; Fase C limitata ai job dietro al PDF (`main` con M1 M2 M8
+  M8c, `main_v2` con M4 M7, `variants_v2`, `guard_calibrate.py`, `guard_return`, `guard_jump`, `guard_mixed`).
+- **Confronto con il README, il quaderno e il PDF.**
+  - Fast yet Safe: ogni cella della tabella del README è uguale (CRC al più ε + 0,002 e + 0,011, UCB 0,11 e 0,047).
+  - Accuracy per exit delle 24 network: le 72 celle della tabella pulita del README sono uguali (CIFAR10 joint_sd exit 3
+    vale 0,7695, e cambia solo l'arrotondamento), e così le 24 della tabella su CIFAR-C.
+  - Blocco 3: tutte le celle delle tabelle del README (savings di M1 e M2, rischio e violazioni di M1, test della
+    settimana 4 per seed) sono uguali. Guadagno di M8b 0,047, 0,043 e 0,044 per seed (0,029, 0,026 e 0,026 con
+    l'agreement score). Quota rimasta a severity 3: 0,591 [0,564, 0,617] e 0,530 [0,501, 0,558]. Scomposizione del calo
+    0,607 e 0,711 su CIFAR10, 0,847 e 0,882 su CIFAR100. Costo di M8b 2.604 e 30.860 forward complete, payback 81.403 e
+    1.669.064 input, 25.794 e 29.372 senza il training.
+  - B3: l'affidabilità spiega il 37% [25%, 48%] e il 39% del calo, come in B3.01.
+  - **Figure.** Le otto figure del PDF rigenerate hanno lo stesso md5 dei file originali, cioè sono identiche bit per
+    bit: `savings_by_method.png`, `risk_by_method.png`, `savings_drop_by_exit.png` e `savings_by_score.png` (figure
+    1–4), `b1_levels.png` (5), `b2_frontier.png` (6), `timeline_main_sev3.png` (7), `timeline_guard_return.png` (8).
+    Lo sono anche `b2_gain_vs_compute.png` e `phases_sev3.png`. Quindi anche i numeri dei pilot e degli stream da cui
+    vengono sono gli stessi.
+- **Non rifatti**, perché il PDF non li usa o li presenta come passi futuri (il codice c'è e si rilanciano con
+  `ricostruzione/chain_fase_c.sh` o con i comandi delle voci originali): Fase D (D.01–D.04: conferma sulle 4
+  corruzioni extra, CIFAR-10.1, latenza), `gamma_clean`, i job `return`, `sens`, `weighted`, `steps`, `mixed`, `w` di
+  `run_c06.sh`, `reference_check.py`. Il primo run ImageNet (D.08) è perso, il secondo è in D.10.
+- **Incidenti.** La prima volta i job sono morti con la sessione di Claude, e da allora girano staccati
+  (`start_new_session`). Con il coperchio chiuso il Mac va in stop e i job restano sospesi fino al risveglio. Il
+  caricatore da 30 W non regge 6 processi: il watchdog li ha messi in pausa sotto il 32% e ripresi sopra il 45% (cinque
+  pause il 27). Dopo una pausa con SIGSTOP, `wait` di zsh restituisce 145 anche se il job finisce bene: è successo a
+  `run_b2_heads.sh` su CIFAR100, che ha comunque scritto tutti i 30 casi.

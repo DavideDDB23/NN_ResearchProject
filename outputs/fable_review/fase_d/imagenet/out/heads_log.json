@@ -1,0 +1,50 @@
+[
+ {
+  "exit": 1,
+  "block": 2,
+  "held_out_accuracy": 0.0376,
+  "epochs": 14
+ },
+ {
+  "exit": 2,
+  "block": 4,
+  "held_out_accuracy": 0.0688,
+  "epochs": 14
+ },
+ {
+  "exit": 3,
+  "block": 6,
+  "held_out_accuracy": 0.0777,
+  "epochs": 14
+ },
+ {
+  "exit": 4,
+  "block": 8,
+  "held_out_accuracy": 0.1719,
+  "epochs": 15
+ },
+ {
+  "exit": 5,
+  "block": 10,
+  "held_out_accuracy": 0.1946,
+  "epochs": 12
+ },
+ {
+  "exit": 6,
+  "block": 12,
+  "held_out_accuracy": 0.2291,
+  "epochs": 13
+ },
+ {
+  "exit": 7,
+  "block": 14,
+  "held_out_accuracy": 0.6617,
+  "epochs": 15
+ },
+ {
+  "exit": 8,
+  "block": 15,
+  "held_out_accuracy": 0.7561,
+  "epochs": 13
+ }
+]

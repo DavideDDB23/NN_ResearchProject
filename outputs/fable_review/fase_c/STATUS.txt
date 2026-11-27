@@ -1,0 +1,12 @@
+2026-11-26 22:46:34 guard_return cifar10 START (reps 6) battery=42%
+2026-11-26 22:48:05 guard_return cifar10 END exit=0 battery=42%
+2026-11-26 22:48:05 guard_jump cifar10 START (reps 6) battery=42%
+2026-11-26 22:49:05 guard_jump cifar10 END exit=0 battery=41%
+2026-11-26 22:49:05 guard_mixed cifar10 START (reps 6) battery=41%
+2026-11-26 22:51:05 guard_mixed cifar10 END exit=0 battery=41%
+2026-11-26 22:51:05 guard_return cifar100 START (reps 6) battery=41%
+2026-11-26 22:59:05 guard_return cifar100 END exit=0 battery=40%
+2026-11-26 22:59:05 guard_jump cifar100 START (reps 4) battery=40%
+2026-11-26 23:02:35 guard_jump cifar100 END exit=0 battery=39%
+2026-11-26 23:02:35 guard_mixed cifar100 START (reps 4) battery=39%
+2026-11-26 23:10:06 guard_mixed cifar100 END exit=0 battery=37%

@@ -1,0 +1,12 @@
+2026-11-27 10:10:21 b2_bn START splits=0 battery=81% shell_pid=30298
+2026-11-27 10:10:21 b2_bn python_pid=30306
+2026-11-27 10:26:22 b2_bn END exit=0 battery=70%
+2026-11-27 10:26:22 b2_heads START workers=3 args=--splits 0 --runs cifar10/joint/seed0 cifar10/joint_sd/seed0 battery=70% shell_pid=33771
+2026-11-27 10:26:22 b2_heads python_pid=33779
+2026-11-27 10:46:22 b2_heads END exit=0 battery=54%
+2026-11-27 10:46:22 b2_heads START workers=3 args=--splits 0 --runs cifar100/joint/seed0 cifar100/joint_sd/seed0 battery=54% shell_pid=34162
+2026-11-27 10:46:22 b2_heads python_pid=34170
+2026-11-27 13:10:24 b2_heads END exit=145 battery=43%
+2026-11-27 13:10:24 b2_heads START workers=3 args=--splits 1 battery=43% shell_pid=45978
+2026-11-27 13:10:24 b2_heads python_pid=45986
+2026-11-27 13:32:24 b2_heads END exit=0 battery=34%

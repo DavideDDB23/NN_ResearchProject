@@ -1,0 +1,57 @@
+{
+ "out": "outputs/fable_review/fase_c/guard_jump",
+ "stream": "jump",
+ "methods": [
+  "M4",
+  "M7wg"
+ ],
+ "runs": [
+  "cifar100/joint/seed0",
+  "cifar100/disjoint/seed0",
+  "cifar100/mixed/seed0",
+  "cifar100/joint_sd/seed0"
+ ],
+ "domains": [
+  "gaussian_noise:3",
+  "shot_noise:3",
+  "impulse_noise:3",
+  "defocus_blur:3",
+  "glass_blur:3",
+  "motion_blur:3",
+  "zoom_blur:3",
+  "snow:3",
+  "frost:3",
+  "fog:3",
+  "brightness:3",
+  "contrast:3",
+  "elastic_transform:3",
+  "pixelate:3",
+  "jpeg_compression:3"
+ ],
+ "reps": 4,
+ "pi": 0.05,
+ "gamma": 0.0002,
+ "pi_a": 0.25,
+ "n_target": 3000,
+ "restart_test": 2.0,
+ "restart_margin": 0.0,
+ "restart_holdout": 0.25,
+ "guard_kappa": 0.1,
+ "guard_window": 1000,
+ "k_refit": 5000,
+ "kappa": 0.03,
+ "window": 1000,
+ "betas": [
+  0.01,
+  0.02,
+  0.05,
+  0.1
+ ],
+ "threshold": 10000.0,
+ "t0": 10000,
+ "t1": 30000,
+ "t2": 15000,
+ "seed": 0,
+ "workers": 3,
+ "force": false
+}

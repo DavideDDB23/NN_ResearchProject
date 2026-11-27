@@ -1,0 +1,45 @@
+Righe proposte per la tabella Cosa è fatto del documento di progetto, dalla più recente. Ogni riga ha tre linee, nell'ordine data, cosa, esito.
+
+14 novembre 2026
+Adattamento delle teste, M8b, su tre seed
+M8b ora gira anche sui seed 1 e 2, quindi su tutte le 24 reti. Il guadagno in savings su M2 a severity 3 o più è lo stesso sui tre seed, cioè 0,047, 0,043 e 0,044. Il criterio della settimana 4 resta non superato. Solo CIFAR10 con joint_sd sta sulla soglia, con 0,53, 0,49 e 0,60 dei casi sui tre seed. M8b tiene la garanzia come M2. Sugli stessi casi supera ε nel 10,2% dei casi contro il 10,7% di M2, e lo scarto sopra il 10% viene dal rumore delle righe di eval.
+
+14 novembre 2026
+Aggiornamento della letteratura
+Ricerca su arXiv dal 29 ottobre al 13 novembre, su OpenReview e tra gli accettati di NeurIPS 2026. Tre idee teoriche sul rischio da certificare sono già in letteratura. La submission 22466 a ICLR 2027 scrive che il disaccordo limita l'errore in eccesso rispetto al riferimento ma non l'errore assoluto del task. Mostra anche un caso in cui il modello completo è meno accurato dell'uscita anticipata. La submission 22325 a ICLR 2027, letta solo nell'abstract, studia cosa si può identificare dal solo disaccordo senza label. Einbinder et al. 2024 controllano l'accuracy gap con poche label e pseudo label in una early time classification. Da quello che ho trovato al 14 novembre nessun lavoro misura i savings computazionali di un early exit con risk control senza label sotto shift a garanzia mantenuta. Non ho trovato nemmeno il bilancio in compute di una fase di adattamento dentro un risk control. Sono esiti negativi di una ricerca, da ricontrollare prima di ogni invio.
+
+14 novembre 2026
+Correzioni dopo la revisione
+Gli script della revisione sono ora nella repository, nella cartella 6_block3_review, e ridanno gli stessi numeri dei piloti. La suite ha 11 test in più e ne passano 136. README e findings.md riportano M1 con i savings lordi e il suo rischio, gli intervalli e i limiti di M2. Il calcolo di M8b funziona anche sui seed senza feature salvate, perché le ricalcola dal modello.
+
+13 novembre 2026
+Revisione critica dei blocchi da 1 a 3
+Codice e numeri confermati. Passano 125 test e la riproduzione di Fast yet Safe è identica. Nove righe di results.csv ricalcolate da zero coincidono con uno scarto di 3 miliardesimi. Nessun bug e nessun leakage. I rilievi principali sono nel registro findings.md.
+
+13 novembre 2026
+Controllo del riferimento, cioè dell'exit 9
+Nei regimi che allenano tutta la rete l'exit 9 è al massimo accurato quanto l'exit 8, anche sotto shift. Su CIFAR100 pulito guardo i casi in cui l'exit usato e l'exit 9 non concordano. L'early exit ha ragione tra il 46% e il 50% delle volte, l'exit 9 tra il 28% e il 31%. Con joint_sd le due quote sono 39% e 38%. Con un ensemble degli exit da 7 a 9 come riferimento i savings puliti su CIFAR100 passano da 0,231 a 0,293, ma circa metà del guadagno è meccanica. Resta da decidere quale rischio certificare prima della parte online.
+
+13 novembre 2026
+Metrica di M1
+I valid savings dipendono dal rumore delle righe di eval. M1 va riportato come coppia di savings lordi e rischio. Su CIFAR10 tiene savings tra 0,35 e 0,46 con un rischio tra 0,065 e 0,127, sopra ε.
+
+13 novembre 2026
+Validità e costo di M2
+Con 100 split per dominio la soglia di M2 supera ε nel 6,7% dei casi su CIFAR10 e nel 5,7% su CIFAR100, misurando sulle righe fuori dalla calibrazione. Sono valori sotto δ. M2 resta un limite ottimistico, perché conosce il dominio e spende 3.000 forward complete. Con poche righe di calibrazione i savings calano, quindi CRC va riportato accanto a UCB.
+
+13 novembre 2026
+Compute dell'adattamento delle teste, M8b
+Il training delle teste vale circa 2.600 forward complete su CIFAR10 e 30.900 su CIFAR100. A severity 3 si ripaga dopo circa 81.000 e 1,7 milioni di input dello stesso dominio. H4 va precisata. Su CIFAR100 domina il training, su CIFAR10 dipende da come si contano gli audit.
+
+13 novembre 2026
+Regimi e criterio della settimana 4
+Il vantaggio di joint_sd regge su CIFAR100 ma non su CIFAR10, dove viene da un solo seed. Il criterio della settimana 4 resta non superato.
+
+13 novembre 2026
+Scomposizione del calo e intervalli
+La quota dello shift a λ ferma va dal 61% al 71% su CIFAR10 e dall'85% all'88% su CIFAR100, secondo l'ordine dei due passi. A severity 3 resta il 59% dei savings puliti su CIFAR10, con intervallo al 95% tra 56% e 62%. Su CIFAR100 resta il 53%, con intervallo tra 50% e 56%.
+
+13 novembre 2026
+Bound del controller
+Dimostrazione ricontrollata. Il bound regge contro avversari adattivi ma è largo sugli orizzonti reali. Con ε = 0,05 vale 0,156 dopo 10.000 input e 0,081 dopo 100.000.

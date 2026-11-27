@@ -77,6 +77,18 @@ A suggested reading order, from the basics to the last block:
   - tests that need data (CIFAR, CIFAR-C, exported outputs) are skipped when the data is missing, and
     `pytest -rs` lists them.
 
+### Working folder of the review, the pilots and the online part
+
+`outputs/fable_review/` holds the lab notebook (`quaderno.md`, in Italian), the reports of the review and of the
+following phases (`02b_piloti.md`, `03_direzioni.md`, `03b_fase_c.md`, `03c_fase_d.md`), the code of the offline
+pilots B1 to B3 (`pilots/`), of the online stream simulator (`fase_c/`) and of phase D (`fase_d/`, with the ImageNet
+notebook for Colab). It was ignored by git and was lost with the old Mac on 26 November 2026; it was rebuilt from the
+Claude session of 14 to 16 November (`outputs/fable_review/RICOSTRUZIONE.md`) and git tracks it from now on, without
+per-case results, caches and logs. On 26 and 27 November everything behind the update sent to the professor
+(`documenti/documento_prof_23novembre.md` and its PDF) was run again on the new Mac: tables and numbers match, and the
+eight figures are identical to the originals bit for bit (`quaderno.md`, entry R.01). The scripts of that rerun are in
+`outputs/fable_review/ricostruzione/`.
+
 ## Block 1: reproducing Fast yet Safe
 
 Run everything from the repository root.

@@ -1,0 +1,21 @@
+Righe proposte per la tabella Cosa è fatto del documento di progetto, dalla più recente. Ogni riga ha tre linee, nell'ordine data, cosa, esito.
+
+15 novembre 2026
+Perché i savings calano sotto shift, pilota B3
+Su 24 reti il calo ha due cause di peso simile. Gli exit perdono confidenza e meno input superano la soglia, e questo spiega circa il 60% del calo su CIFAR10 a severity 3. A pari confidenza gli exit concordano meno con il final exit, e questo spiega circa il 40%. È questa seconda causa a far salire il rischio a soglia ferma. Uno score dell'accordo che usa tutti gli exit già calcolati riconosce gli input quasi come la max softmax. Guadagna invece da 0,01 a 0,02 di savings se la soglia di ogni exit tiene conto del compute che resta, anche quando lo score è allenato solo su dati puliti.
+
+15 novembre 2026
+Due metri per giudicare un adattamento
+La BN adaptation alza l'accuracy dell'exit 9 di 7 punti a severity 3 e di 16 a severity 5 su CIFAR10, ma lascia fermi i savings certificati. L'adattamento delle teste fa il contrario. Su CIFAR100 il suo guadagno è accordo con un riferimento che sbaglia. L'accuracy delle teste non sale e nel 78% dei nuovi accordi l'exit 9 è in errore. Riporterei sempre insieme i savings certificati e l'accuracy a pari compute.
+
+15 novembre 2026
+Fase di adattamento che ripaga il suo costo, pilota B2
+Ho confrontato varianti economiche dell'adattamento delle teste su 4 reti del seed 0. Una mappa affine sui logit di ogni testa tiene il 91% del guadagno di M8b su CIFAR10 e tutto il guadagno su CIFAR100. Una scala e un bias per classe sui logit ne tengono gran parte, e li ho provati su tutte le 24 reti. A severity 3 tengono il 77% del guadagno di M8b su CIFAR10 e il 76% su CIFAR100, con risultati simili sui tre seed. Il training vale meno di 11 forward complete contro 2.600 e 30.900, e il payback scende da circa 86.000 e 1,7 milioni di input a circa 28.000 su entrambi i dataset. Costruirei la fase di adattamento online su questa variante.
+
+15 novembre 2026
+Righe di adattamento e audit
+A pari audit conviene dividere il budget. Con 750 righe per adattare e 2.250 per calibrare i savings salgono tra 0,03 e 0,04 su CIFAR10 a severity 3 senza audit in più. Gli input che arrivano comunque all'exit 9 non costano nulla ma rendono meno delle stesse righe prese a caso. Con la penalità L2 scelta su righe tenute da parte danno tra il 55% e il 95% del guadagno. Un adattamento che lascia fermo il backbone riusa gli audit già pagati per ricalibrarsi. Uno che lo cambia, come la BN adaptation, deve ripagare la calibrazione.
+
+15 novembre 2026
+Bilancio dei savings sotto shift, pilota B1
+Su 24 reti ho misurato dove si perde il margine tra ciò che la rete potrebbe risparmiare e ciò che M2 certifica. A severity 3 un oracolo per input risparmia 0,68 su CIFAR10 e 0,47 su CIFAR100, mentre M2 certifica 0,31 e 0,12. Il prezzo statistico della calibrazione vale tra il 2% e il 4% del margine. Otto soglie per exit, confrontate a pari rischio, ne chiudono il 5%. Il resto sta nel riconoscere quali input concordano con l'exit 9. Dal pulito a severity 3 all'oracolo resta l'89% e l'81% dei savings, a M2 il 59% e il 53%.

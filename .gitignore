@@ -1,9 +1,38 @@
 # data, results and external code stay out of git
 # (the leading / means only the folders in the repository root, not src/eesavings/data/)
 /data/
-/outputs/
 /third_party/
 /checkpoints/
+
+# results stay out of git, except Claude's working folder outputs/fable_review/ (pilots, online streams, phase D,
+# lab notebook and reports), which was lost with the old Mac on 26 November 2026 because it was ignored.
+# Inside it the heavy parts stay out: caches, trial runs, downloaded data, logs and zip files.
+/outputs/*
+!/outputs/fable_review/
+/outputs/fable_review/**/cache*/
+/outputs/fable_review/**/smoke/
+/outputs/fable_review/fase_d/data/
+/outputs/fable_review/**/*.log
+/outputs/fable_review/**/*.zip
+# per-case results of the pilots and of the online streams (about 150 MB, rebuilt by the scripts): only the small
+# summary tables and the figures go in git
+/outputs/fable_review/fase_c/*/summary/
+/outputs/fable_review/fase_c/*/events/
+/outputs/fable_review/fase_c/*/refs/
+/outputs/fable_review/fase_c/*/curves/
+/outputs/fable_review/fase_d/*/summary/
+/outputs/fable_review/fase_d/*/events/
+/outputs/fable_review/fase_d/*/refs/
+/outputs/fable_review/fase_d/*/curves/
+/outputs/fable_review/pilots/*/runs*/
+/outputs/fable_review/pilots/*/heads_*/
+/outputs/fable_review/pilots/*/curves_*/
+/outputs/fable_review/pilots/B3_meccanismo/decomp/
+/outputs/fable_review/pilots/B3_meccanismo/scores/
+/outputs/fable_review/pilots/B1_bilancio/b1_levels.csv
+/outputs/fable_review/pilots/B1_bilancio/b1_exits.csv
+/outputs/fable_review/pilots/B1_bilancio/b1_frontier.csv
+/outputs/fable_review/fase_d/imagenet/out/tables/
 
 # python
 __pycache__/
